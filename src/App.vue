@@ -372,7 +372,7 @@ function ttlText (eco) {
     <dotrino-support
       class="topbar-coin"
       href="https://ko-fi.com/dotrino"
-      repo="dotrino/eco"
+      repo="imdotrino/dotrino-eco"
       discord="https://discord.gg/D648uq7cth"></dotrino-support>
     </div>
   </div>
