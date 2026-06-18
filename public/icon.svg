@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#0d1b1e"/>
+  <!-- ondas de eco / echo ripples, emitidas desde abajo-izquierda -->
+  <g fill="none" stroke="#0e9aa7" stroke-linecap="round">
+    <circle cx="176" cy="336" r="56"  stroke-width="26" opacity="1"/>
+    <path d="M176 220 a116 116 0 0 1 116 116" stroke-width="26" opacity="0.78"/>
+    <path d="M176 156 a180 180 0 0 1 180 180" stroke-width="26" opacity="0.5"/>
+    <path d="M176 92  a244 244 0 0 1 244 244" stroke-width="26" opacity="0.28"/>
+  </g>
+  <circle cx="176" cy="336" r="22" fill="#3dd7c8"/>
+</svg>
