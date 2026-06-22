@@ -1,5 +1,7 @@
 # Eco
 
+> **Parte del ecosistema [Dotrino](https://dotrino.com).** Misión: aplicaciones que resuelven problemas comunes, respetando tu privacidad — sin anuncios, sin cookies, sin rastreo de datos, sin vender tu identidad a nadie.
+
 **Microblogging efímero y georreferenciado del ecosistema Dotrino.**
 Tu voz, en tu zona, bajo tus reglas. → `https://eco.dotrino.com/`
 
