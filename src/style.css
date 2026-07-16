@@ -17,23 +17,27 @@ html, body { margin: 0; background: var(--bg); color: var(--text);
 button { font: inherit; cursor: pointer; }
 a { color: var(--teal2); }
 
-.topbar {
+/* Barra superior = <dotrino-topbar> (§5). El componente trae la marca, el
+   volver, el idioma, el perfil y la moneda de support; aquí sólo lo anclamos
+   arriba (su .bar no es sticky) y lo tematizamos con los colores de Eco. */
+dotrino-topbar {
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: calc(env(safe-area-inset-top) + 10px) 14px 10px;
-  background: linear-gradient(180deg, var(--bg2), rgba(16,35,40,0.92));
-  border-bottom: 1px solid var(--line); backdrop-filter: blur(6px);
+  --dotrino-topbar-bg: linear-gradient(180deg, var(--bg2), rgba(16,35,40,0.92));
+  --dotrino-topbar-border: var(--line);
+  --dotrino-topbar-text: var(--text);
+  --dotrino-topbar-muted: var(--muted);
+  --dotrino-topbar-accent: var(--teal);
+  --dotrino-topbar-accent-text: #042024;
+  --dotrino-topbar-gap: 10px;
 }
-.topbar-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
-/* Chevron de volver (Web Component @dotrino/nav) arriba-izquierda. */
-.cc-back { color: var(--text); --cc-back-size: 36px; --cc-back-bg-hover: rgba(255,255,255,.10); margin-left: -4px; }
+/* Marca y acciones viajan por slot → viven en el light DOM y las estila esta
+   hoja (no ::part). */
 .brand { min-width: 0; }
 .brand span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-/* En móvil los controles bajan a su propia fila, debajo de la marca. */
+/* En móvil los controles se alinean a la derecha al envolver. */
 @media (max-width: 560px) {
-  .topbar { gap: 8px; }
-  /* La fila de controles, al envolver, queda alineada a la derecha (margin-left:auto). */
   .topbar-controls { justify-content: flex-end; }
 }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 19px; }
@@ -48,11 +52,6 @@ a { color: var(--teal2); }
 }
 .top-select:focus { outline: none; border-color: var(--teal); }
 .top-select option { background: var(--bg2); color: var(--text); }
-
-.lang-selector { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
-.lang-selector button { background: var(--card); color: var(--muted); border: none; padding: 6px 11px; font-size: 12px; font-weight: 700; }
-.lang-selector button:hover { color: var(--text); }
-.lang-selector button.on { background: var(--teal); color: #042024; }
 
 .notif-btn { position: relative; }
 .notif-badge {
@@ -91,15 +90,6 @@ a { color: var(--teal2); }
 }
 .chip.on { color: var(--text); border-color: var(--teal); background: #123036; }
 .chip:hover { color: var(--text); }
-/* "Mi perfil": botón circular ghost a la izquierda de la moneda de soporte. */
-.profile-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; padding: 0; flex-shrink: 0;
-  border: 1px solid var(--line); background: var(--card); color: var(--muted);
-  border-radius: 50%; cursor: pointer; transition: .15s;
-}
-.profile-btn svg { width: 18px; height: 18px; display: block; }
-.profile-btn:hover { color: var(--text); border-color: var(--teal); }
 .muted { color: var(--muted); font-size: 13px; }
 
 .search-box {

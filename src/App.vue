@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, watchEffect } from 'vue'
 import { useFeed } from './feed/feedStore'
 import { createVaultProfileProvider } from '@dotrino/profile'
+import '@dotrino/topbar'
 import '@dotrino/notifications'
 import { getNotifications } from './services/notifications'
 import { getIdentity } from './services/identity'
@@ -10,14 +11,29 @@ import { useBackLayer } from '@dotrino/nav/vue'
 import iconUrl from '/icon.svg'
 
 const feed = useFeed()
+// Idioma: el toggle vive en <dotrino-topbar> y es la fuente de verdad; persiste
+// en la clave común del ecosistema ('dotrino.lang'). Migramos UNA vez la
+// preferencia vieja de Eco ('eco:lang') para no resetear a quien ya eligió.
+const LANG_KEY = 'dotrino.lang'
 function initialLang () {
-  try { const s = localStorage.getItem('eco:lang'); if (s === 'es' || s === 'en') return s } catch (_) {}
+  try {
+    const s = localStorage.getItem(LANG_KEY)
+    if (s === 'es' || s === 'en') return s
+    const old = localStorage.getItem('eco:lang')
+    if (old === 'es' || old === 'en') {
+      localStorage.setItem(LANG_KEY, old)
+      localStorage.removeItem('eco:lang')
+      return old
+    }
+  } catch (_) {}
   return (navigator.language || 'es').slice(0, 2) === 'en' ? 'en' : 'es'
 }
 const lang = ref(initialLang())
-function setLang (l) {
-  lang.value = l
-  try { localStorage.setItem('eco:lang', l) } catch (_) {}
+watch(lang, (l) => { document.documentElement.lang = l }, { immediate: true })
+// El topbar avisa al cambiar de idioma (él ya lo persistió).
+function onLang (e) {
+  const l = e?.detail?.lang
+  if (l === 'es' || l === 'en') lang.value = l
 }
 
 const T = {
@@ -135,6 +151,10 @@ function onSWMessage (e) { if (e.data?.type === 'cc-push-ring') feed.discoverNow
 onMounted(async () => {
   navigator.serviceWorker?.addEventListener('message', onSWMessage)
   await feed.init()
+  // Pilares para el botón de perfil del topbar (el vault ya lo abrió feed.init;
+  // ambos servicios cachean la instancia, así que esto no reconecta nada).
+  identityInst.value = await getIdentity()
+  if (identityInst.value) reputationInst.value = await getReputation()
   // Sin nick: abrir el popup de nombre directo (si cancela, el guard lo reabre
   // al intentar cualquier acción). Sin banner.
   if (!feed.standalone && !feed.hasNick) nickPrompt.value = true
@@ -218,19 +238,6 @@ function bindProfile (el) {
   if (!el) return
   ensureProfileProvider().then((p) => { if (p) el.provider = p })
 }
-// "Mi perfil": botón del header (a la izquierda de la moneda de soporte) que abre
-// el MISMO Web Component compartido en modo self con mi identidad del vault.
-const myProfilePk = ref(null)
-const myProfileName = ref(null)
-async function openMyProfile () {
-  try {
-    const identity = await getIdentity()
-    const pk = identity?.me?.publickey
-    if (!pk) return
-    myProfileName.value = identity?.me?.nickname || null
-    myProfilePk.value = pk
-  } catch (_) { /* sin identidad no abre */ }
-}
 const profileTheme = {
   '--ccp-bg': 'var(--card)',
   '--ccp-bg-2': 'var(--bg2)',
@@ -248,6 +255,21 @@ const profileTheme = {
   '--ccp-input-bg': 'var(--bg)',
   '--ccp-radius': '12px',
 }
+
+// "Mi perfil" (§6.1) lo abre el propio <dotrino-topbar>: es el dueño del modal.
+// Le pasamos los pilares que la app ya maneja (identidad + reputación) y el tema
+// por PROPIEDAD JS; con eso deriva pubkey, nombre y avatar del perfil activo.
+const topbarRef = ref(null)
+const identityInst = ref(null)
+const reputationInst = ref(null)
+watchEffect(() => {
+  const tb = topbarRef.value
+  if (!tb) return
+  tb.identity = identityInst.value ?? null
+  tb.reputation = reputationInst.value ?? null
+  tb.profileTheme = profileTheme
+})
+
 // Mi etiqueta para un pk (de lo que ya está en el feed), para hilos/citas.
 function myLabelFor (pk) { return feed.feed.find((i) => i.eco.author === pk)?.ctx?.name || null }
 
@@ -264,7 +286,8 @@ useBackLayer(showThemes)
 useBackLayer(nickPrompt)
 useBackLayer(threadRoot, { onClose: () => { threadRoot.value = null } })
 useBackLayer(profilePk, { onClose: () => { profilePk.value = null } })
-useBackLayer(myProfilePk, { onClose: () => { myProfilePk.value = null } })
+// El modal "Mi perfil" ya no es una capa nuestra: lo abre y lo integra con el
+// "volver" del ecosistema el propio <dotrino-topbar>.
 useBackLayer(shareCtx, { onClose: () => { shareCtx.value = null } })
 
 // Notificaciones
@@ -341,41 +364,39 @@ function ttlText (eco) {
 </script>
 
 <template>
-  <div class="topbar">
-    <dotrino-back :lang="lang" class="cc-back"></dotrino-back>
-    <div class="brand">
+  <!-- Barra superior estándar del ecosistema (§5): marca + volver + idioma +
+       perfil + moneda de support vienen DENTRO del componente. Aquí sólo van la
+       marca a medida (slot "brand") y las acciones propias de Eco (slot "end"). -->
+  <dotrino-topbar
+    ref="topbarRef"
+    brand-href="./"
+    :lang.attr="lang"
+    profile
+    support-href="https://ko-fi.com/dotrino"
+    support-repo="imdotrino/dotrino-eco"
+    support-discord="https://discord.gg/D648uq7cth"
+    @dotrino-lang="onLang"
+  >
+    <div slot="brand" class="brand">
       <img :src="iconUrl" alt="Eco" />
       <span>Eco <small>{{ t.tagline }}</small></span>
     </div>
-    <div class="spacer"></div>
-    <div class="topbar-controls">
-    <dotrino-install class="cc-install" :lang="lang" data-testid="install-btn"></dotrino-install>
-    <select class="top-select" :value="feed.radiusMeters"
-            @change="feed.setRadius(Number($event.target.value))" :title="t.radius">
-      <option v-for="r in feed.radii" :key="r" :value="r">◎ {{ radiusLabel(r) }}</option>
-    </select>
-    <select class="top-select" :value="feed.preset"
-            @change="feed.setPreset($event.target.value)" :title="t.sort">
-      <option v-for="(p, k) in feed.presets" :key="k" :value="k">↕ {{ p.label[lang] }}</option>
-    </select>
-    <button class="chip notif-btn" data-testid="bell" @click="openNotifs" :title="t.notifications">🔔<span v-if="feed.unread" class="notif-badge" data-testid="unread">{{ feed.unread }}</span></button>
-    <button class="chip" data-testid="themes" @click="showThemes = true" :title="t.themes">🏷<span v-if="feed.myTags.length"> {{ feed.myTags.length }}</span></button>
-    <div class="lang-selector" role="group" aria-label="es / en">
-      <button :class="{ on: lang === 'es' }" @click="setLang('es')">ES</button>
-      <button :class="{ on: lang === 'en' }" @click="setLang('en')">EN</button>
+    <!-- Un solo contenedor: el cluster derecho del topbar es row-reverse, así que
+         agrupamos para conservar el orden visual de siempre. -->
+    <div slot="end" class="topbar-controls">
+      <dotrino-install class="cc-install" :lang="lang" data-testid="install-btn"></dotrino-install>
+      <select class="top-select" :value="feed.radiusMeters"
+              @change="feed.setRadius(Number($event.target.value))" :title="t.radius">
+        <option v-for="r in feed.radii" :key="r" :value="r">◎ {{ radiusLabel(r) }}</option>
+      </select>
+      <select class="top-select" :value="feed.preset"
+              @change="feed.setPreset($event.target.value)" :title="t.sort">
+        <option v-for="(p, k) in feed.presets" :key="k" :value="k">↕ {{ p.label[lang] }}</option>
+      </select>
+      <button class="chip notif-btn" data-testid="bell" @click="openNotifs" :title="t.notifications">🔔<span v-if="feed.unread" class="notif-badge" data-testid="unread">{{ feed.unread }}</span></button>
+      <button class="chip" data-testid="themes" @click="showThemes = true" :title="t.themes">🏷<span v-if="feed.myTags.length"> {{ feed.myTags.length }}</span></button>
     </div>
-    <button class="profile-btn" data-testid="my-profile" @click="openMyProfile" :title="lang === 'es' ? 'Mi perfil' : 'My profile'" :aria-label="lang === 'es' ? 'Mi perfil' : 'My profile'">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" />
-      </svg>
-    </button>
-    <dotrino-support
-      class="topbar-coin"
-      href="https://ko-fi.com/dotrino"
-      repo="imdotrino/dotrino-eco"
-      discord="https://discord.gg/D648uq7cth"></dotrino-support>
-    </div>
-  </div>
+  </dotrino-topbar>
 
   <div class="wrap">
     <p v-if="feed.standalone" class="err">{{ t.standalone }}</p>
@@ -530,20 +551,6 @@ function ttlText (eco) {
       </article>
     </div>
   </div>
-
-  <!-- Mi perfil (botón del header, a la izquierda de la moneda): mismo Web
-       Component compartido en modo self con mi identidad del vault. -->
-  <dotrino-profile
-    v-if="myProfilePk"
-    :ref="bindProfile"
-    modal
-    mode="self"
-    :pubkey="myProfilePk"
-    :name="myProfileName"
-    :lang="lang"
-    :style="profileTheme"
-    @cc-profile-close="myProfilePk = null"
-  ></dotrino-profile>
 
   <!-- Compartir: modal coherente con el set de support (WhatsApp/X/Facebook) -->
   <div v-if="shareCtx" class="modal-back" @click.self="shareCtx = null">

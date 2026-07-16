@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
-import '@dotrino/support'
+// La moneda de support ya no se importa aquí: la trae <dotrino-topbar> (§5/§6).
 import '@dotrino/profile'
 import '@dotrino/install'
 import { createBackNav } from '@dotrino/nav'
