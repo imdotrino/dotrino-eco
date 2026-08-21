@@ -7,6 +7,11 @@ import { Store } from '@dotrino/store'
 
 const MINE = 'eco:mine'
 const INBOX = 'eco:inbox'
+// Índice de lo ARCHIVADO en el node del usuario. Aquí van los PUNTEROS (qué eco es
+// qué `cid`), no los ecos: el content guarda versiones inmutables y no sabe cuál es
+// "la actual" de nada; saber eso es del store. Y tiene que estar disponible aunque
+// el node esté apagado, que es la regla de entrada del store (CONVENCIONES §4).
+const ARCHIVE = 'eco:archive'
 const authorKey = (pk) => 'eco:' + pk
 
 let store = null
@@ -50,6 +55,32 @@ export async function loadAllEcos () {
   const byId = new Map()
   for (const eco of all) byId.set(eco.id, eco)
   return [...byId.values()]
+}
+
+// --- archivo en el node propio (opt-in por eco) ---
+
+/**
+ * Anota que este eco quedó guardado en mi node, y con qué referencia.
+ * @param {{ ecoId: string, cid: string, key?: string|null, owner?: string|null, createdAt?: number }} ptr
+ */
+export async function saveArchived ({ ecoId, cid, key = null, owner = null, createdAt = 0 }) {
+  const s = await getStore()
+  const entry = await s.appendMessage(ARCHIVE, plain({
+    kind: 'archived', ecoId, cid, key, owner, createdAt: createdAt || Date.now()
+  }))
+  return entry
+}
+
+/** Punteros de todo lo archivado. @returns {Promise<any[]>} */
+export async function loadArchived () {
+  const s = await getStore()
+  return s.listThread(ARCHIVE, { limit: 500 }).catch(() => [])
+}
+
+/** Quita el puntero (quien borra los bytes es el node, aparte). */
+export async function removeArchived (entryId) {
+  const s = await getStore()
+  await s.removeMessage(ARCHIVE, entryId).catch(() => {})
 }
 
 /** Bandeja efímera: eventos de desconocidos avalados pendientes de aceptar. */

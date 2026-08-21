@@ -9,8 +9,12 @@ import { publishEco, removeEco, discover } from '../services/geo'
 import { connect as proxyConnect, onMessage, sendEcoEvent } from '../services/proxy'
 import { shouldNotifyType, ensurePushSubscribed } from '../services/notifications'
 import {
-  saveEco, saveMine, loadAllEcos, pushInbox, loadInbox, clearInbox, muteAuthor
+  saveEco, saveMine, loadAllEcos, pushInbox, loadInbox, clearInbox, muteAuthor,
+  saveArchived, loadArchived, removeArchived
 } from '../services/store'
+import {
+  getContent, retry as retryContent, archiveEco, readEco, forgetEco, buildUrl, parseRef
+} from '../services/content'
 import { repOf, isEndorsed, warmRep } from '../services/reputation'
 import { rankFeed, isAlive, PRESETS } from './ranking'
 
@@ -32,6 +36,16 @@ export const useFeed = defineStore('feed', {
     posts: new Map(),         // id → eco (cache en memoria)
     feed: [],                 // [{ eco, ctx, score }]
     inbox: [],
+    // --- archivo en el node propio (opt-in por eco, DISENO §3.2 de content) ---
+    // Eco es efímero: el beacon dura 24 h y lo demás es tu copia local. Guardar un
+    // eco en tu node añade TU propia copia, y por eso se pide eco a eco en vez de
+    // hacerse por detrás — publicar creyendo que se borra solo y toparte el enlace
+    // vivo un año después es justo lo que no hacemos.
+    hasNode: false,           // ¿hay un content node mío en línea?
+    nodeChecked: false,       // ya se miró (para no pintar el interruptor a ciegas)
+    keepNext: false,          // el interruptor del composer, para el PRÓXIMO eco
+    archived: [],             // punteros { ecoId, cid, key, owner } desde el store
+    nodeError: null,          // lo último que falló al guardar, para decirlo
     interactions: new Map(),  // authorPk → nº interacciones (afinidad)
     reactions: {},            // authorPk → net likes(+1)/dislikes(-1) (persistente)
     myReaction: {},           // ecoId → 'like' | 'dislike' (persistente, para el highlight)
@@ -51,7 +65,9 @@ export const useFeed = defineStore('feed', {
     hasNick: (s) => !!s.myName,
     mutedList: (s) => Object.keys(s.muted),
     allEcos: (s) => [...s.posts.values()],  // para armar hilos (incluye expirados que tengamos)
-    unread: (s) => s.notifications.filter((n) => !n.read).length
+    unread: (s) => s.notifications.filter((n) => !n.read).length,
+    /** ecoId → puntero, para saber de un vistazo cuáles están guardados. */
+    archivedById: (s) => Object.fromEntries(s.archived.map((a) => [a.ecoId, a]))
   },
 
   actions: {
@@ -64,6 +80,9 @@ export const useFeed = defineStore('feed', {
       // cargar archivo local primero (funciona aunque no haya red)
       for (const eco of await loadAllEcos()) this.posts.set(eco.id, eco)
       this.inbox = await loadInbox()
+      // El índice de lo archivado sale del STORE, así que está aunque el node esté
+      // apagado: se ve qué guardaste sin depender de que la máquina esté encendida.
+      this.archived = (await loadArchived()).filter((a) => a?.cid)
       if (!this.standalone) {
         await proxyConnect()
         this._off = onMessage((m) => this._onProxy(m))
@@ -73,6 +92,7 @@ export const useFeed = defineStore('feed', {
       await this.rebuild()   // muestra el archivo local enseguida
       this.ready = true
       this.locate()          // NO bloquea: al primer fix arranca el descubrimiento
+      this.checkNode()       // tampoco bloquea: Eco funciona igual sin node
     },
 
     // Ubicación robusta: getCurrentPosition para el caso inmediato + watchPosition,
@@ -164,7 +184,7 @@ export const useFeed = defineStore('feed', {
     // Solo se introduce texto (enlaces y tags se extraen del propio texto).
     // context opcional: { mode:'reply'|'reeco', target } — reply crea un eco
     // HERMANO (replyTo) y re-eco crea un eco que CITA al original (repostOf+quoted).
-    async publish ({ text, context = null }) {
+    async publish ({ text, context = null, keep = null }) {
       if (this.standalone || !this.pos) { this.geoError = 'necesitás vault y ubicación para publicar'; return null }
       this.busy = true
       try {
@@ -205,9 +225,110 @@ export const useFeed = defineStore('feed', {
           const plainEco = JSON.parse(JSON.stringify(eco))
           try { await sendEcoEvent(target.author, { type: context.mode === 'reply' ? 'eco-reply' : 'eco-repost', refId: target.id, eco: plainEco }) } catch (_) {}
         }
+        // ARCHIVAR en mi node, si el usuario lo pidió para ESTE eco. Va después de
+        // publicar y nunca antes: que tu node esté apagado no puede impedir que
+        // publiques. Y si falla, se dice — un "guardado" que no guardó es peor que
+        // no ofrecerlo.
+        if (keep ?? this.keepNext) {
+          try {
+            const ref = await archiveEco(eco)
+            if (ref) {
+              const entry = await saveArchived({ ecoId: eco.id, cid: ref.cid, key: ref.key, owner: ref.owner })
+              this.archived = [{ ...entry, ecoId: eco.id, cid: ref.cid, key: ref.key, owner: ref.owner }, ...this.archived]
+            } else {
+              this.nodeError = 'no hay ningún node tuyo encendido: el eco se publicó, pero no se guardó'
+            }
+          } catch (e) {
+            this.nodeError = `el eco se publicó, pero no se pudo guardar en tu node (${e.message})`
+          }
+        }
         await this.rebuild()
         return eco
       } finally { this.busy = false }
+    },
+
+    // --- Archivo en el node propio ---
+
+    /**
+     * ¿Tengo un content node en línea? Sin bloquear nada: Eco funciona igual sin
+     * él, y esto solo decide si se ofrece el interruptor de guardar.
+     */
+    async checkNode () {
+      try { this.hasNode = !!(await getContent()) } catch (_) { this.hasNode = false }
+      this.nodeChecked = true
+      return this.hasNode
+    },
+
+    /** Otro intento (el usuario acaba de encender su node). */
+    async retryNode () {
+      this.nodeChecked = false
+      try { this.hasNode = !!(await retryContent()) } finally { this.nodeChecked = true }
+      return this.hasNode
+    },
+
+    /** El interruptor del composer: se decide eco a eco y no se recuerda. */
+    setKeepNext (on) { this.keepNext = !!on },
+
+    /** Guardar en mi node un eco YA publicado (me arrepentí al revés). */
+    async keepEco (eco) {
+      if (!eco || eco.author !== this.myPubkey) return false
+      if (this.archivedById[eco.id]) return true
+      try {
+        const ref = await archiveEco(eco)
+        if (!ref) { this.nodeError = 'no hay ningún node tuyo encendido'; return false }
+        const entry = await saveArchived({ ecoId: eco.id, cid: ref.cid, key: ref.key, owner: ref.owner })
+        this.archived = [{ ...entry, ecoId: eco.id, cid: ref.cid, key: ref.key, owner: ref.owner }, ...this.archived]
+        return true
+      } catch (e) {
+        this.nodeError = e.message
+        return false
+      }
+    },
+
+    /**
+     * Dejar de guardarlo: borra los bytes del node Y el puntero del store. Las dos
+     * cosas, porque un puntero a algo que ya no está es una promesa rota, y unos
+     * bytes sin puntero son basura que ocupa cuota.
+     */
+    async unkeepEco (ecoId) {
+      const ptr = this.archivedById[ecoId]
+      if (!ptr) return false
+      try { await forgetEco(ptr.cid) } catch (_) { /* si el node no está, al menos suelto el puntero */ }
+      await removeArchived(ptr.id)
+      this.archived = this.archived.filter((a) => a.ecoId !== ecoId)
+      return true
+    },
+
+    /**
+     * Abrir un eco desde el `#fragment` de un enlace (`#<dueño>/<cid>/<llave>`).
+     *
+     * Hoy esto solo resuelve **lo tuyo**: leer los bytes exige sesión con un
+     * aparato de tu misma acta, así que un enlace de otra persona todavía no se
+     * puede abrir aquí — llegará con el transporte entre aparatos. Devuelve null
+     * sin ruido en todos los demás casos, porque el fragmento se usa para muchas
+     * cosas y la mayoría no son referencias.
+     */
+    async openRef (fragment) {
+      const r = parseRef(fragment ?? location.hash)
+      if (!r) return null
+      try {
+        const eco = await readEco(r)
+        if (!eco?.id) return null
+        this.posts.set(eco.id, eco)
+        await this.rebuild()
+        return eco
+      } catch (e) {
+        this.nodeError = e?.code === 'not-mine'
+          ? 'ese enlace es de otra persona: todavía no se puede abrir aquí'
+          : `no se pudo abrir ese enlace (${e.message})`
+        return null
+      }
+    },
+
+    /** El enlace compartible de un eco archivado (la referencia va en el #fragment). */
+    linkFor (ecoId) {
+      const ptr = this.archivedById[ecoId]
+      return ptr ? buildUrl(ptr, location.origin + location.pathname) : null
     },
 
     // --- Descubrir (poll geo) ---

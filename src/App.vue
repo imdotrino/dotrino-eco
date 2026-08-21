@@ -50,6 +50,12 @@ const T = {
     inbox: (n) => `${n} en tu bandeja (avalados por tu red)`, accept: 'Ver', dismiss: 'Descartar',
     reply: 'Responder', repost: 'Re-eco', mute: 'Silenciar (ocultar de tu feed)', del: 'Borrar',
     like: 'Me gusta', dislike: 'No me gusta', share: 'Compartir', kept: 'guardado',
+    // Guardar una copia en el espacio propio del usuario. Nada de "node": la copy
+    // pública se entiende sin saber de tecnología (CONVENCIONES §9.1).
+    keepAdd: 'Guardar una copia', keepRemove: 'Dejar de guardarla',
+    keepOn: 'Guardada en tu máquina',
+    keepHint: 'Se queda en tu propia máquina. Sin esto, el eco desaparece en 24 horas.',
+    keepLink: 'Copiar el enlace de tu copia',
     mutedTitle: 'Silenciados', unmute: 'Quitar silencio', mute0: 'Silenciar',
     reputation: 'Reputación', affinity: 'Afinidad', theirEcos: 'Sus ecos', you2: 'Tú',
     shareHeading: 'Compartir eco', copy: 'Copiar enlace', copied: '¡Enlace copiado!',
@@ -79,6 +85,10 @@ const T = {
     inbox: (n) => `${n} in your inbox (endorsed by your network)`, accept: 'View', dismiss: 'Dismiss',
     reply: 'Reply', repost: 'Re-echo', mute: 'Mute (hide from your feed)', del: 'Delete',
     like: 'Like', dislike: 'Dislike', share: 'Share', kept: 'saved',
+    keepAdd: 'Keep a copy', keepRemove: 'Stop keeping it',
+    keepOn: 'Kept on your machine',
+    keepHint: 'It stays on your own machine. Without this, the eco is gone in 24 hours.',
+    keepLink: 'Copy the link to your copy',
     mutedTitle: 'Muted', unmute: 'Unmute', mute0: 'Mute',
     reputation: 'Reputation', affinity: 'Affinity', theirEcos: 'Their ecos', you2: 'You',
     shareHeading: 'Share eco', copy: 'Copy link', copied: 'Link copied!',
@@ -158,6 +168,9 @@ onMounted(async () => {
   // Sin nick: abrir el popup de nombre directo (si cancela, el guard lo reabre
   // al intentar cualquier acción). Sin banner.
   if (!feed.standalone && !feed.hasNick) nickPrompt.value = true
+  // ¿Se entró con el enlace de un eco guardado? Va después de init y no bloquea:
+  // si el fragmento es otra cosa (o no hay dónde leerlo), no pasa nada.
+  feed.openRef(location.hash)
   tick = setInterval(() => { now.value = Date.now() }, 30_000)
 })
 onBeforeUnmount(() => {
@@ -423,9 +436,26 @@ function ttlText (eco) {
         :placeholder="composeCtx?.mode === 'reeco' ? t.addComment : t.placeholder"></textarea>
       <div class="composer-row">
         <span class="count">{{ text.length }}/280</span>
+        <!-- Guardar una copia: opt-in POR ECO y sin memoria entre uno y otro. Lo
+             efímero es el default de Eco y guardar cambia esa promesa, así que se
+             pide cada vez en vez de dejarlo encendido. Solo aparece si de verdad
+             hay dónde guardarla. -->
+        <label v-if="feed.hasNode" class="keep-toggle" :title="t.keepHint" data-testid="keep-toggle">
+          <input type="checkbox" :checked="feed.keepNext" @change="feed.setKeepNext($event.target.checked)" />
+          <span>💾 {{ t.keepAdd }}</span>
+        </label>
         <div class="spacer"></div>
         <button class="btn" data-testid="post-eco" :disabled="!canPublish" @click="withNick(doPublish)">{{ t.publish }}</button>
       </div>
+      <p v-if="feed.hasNode && feed.keepNext" class="keep-hint">{{ t.keepHint }}</p>
+    </div>
+
+    <!-- Guardar la copia falló: se dice, porque un "guardado" que no guardó es
+         peor que no haberlo ofrecido. El eco sí se publicó. -->
+    <div class="inbox-banner" v-if="feed.nodeError" data-testid="node-error">
+      <span>{{ feed.nodeError }}</span>
+      <div class="spacer"></div>
+      <button class="btn ghost" @click="feed.nodeError = null">{{ t.close }}</button>
     </div>
 
     <!-- Bandeja efímera -->
@@ -474,6 +504,10 @@ function ttlText (eco) {
         <button data-testid="act-reply" :title="t.reply" @click="withNick(() => startCompose('reply', item.eco, item.ctx.name))">💬</button>
         <button data-testid="act-reeco" :title="t.repost" @click="withNick(() => startCompose('reeco', item.eco, item.ctx.name))">🔁</button>
         <button data-testid="act-share" :title="t.share" @click="withNick(() => doShare(item.eco))">🔗</button>
+        <button v-if="feed.hasNode && !feed.archivedById[item.eco.id]" data-testid="act-keep"
+          :title="t.keepAdd" @click="feed.keepEco(item.eco)">💾</button>
+        <button v-else-if="feed.archivedById[item.eco.id]" class="kept-on" data-testid="act-unkeep"
+          :title="t.keepRemove" @click="feed.unkeepEco(item.eco.id)">💾</button>
         <button data-testid="act-delete" :title="t.del" @click="withNick(() => feed.deleteMine(item.eco))">🗑</button>
       </div>
     </article>

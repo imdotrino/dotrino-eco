@@ -57,3 +57,23 @@ Requiere el vault `id.dotrino.com` para publicar (firma). Sin vault, Eco abre en
 Parte del ecosistema **Dotrino** — *tu información, en tu servidor, bajo tus
 reglas*. Soporte: [Ko-fi](https://ko-fi.com/dotrino) ·
 [Discord](https://discord.gg/D648uq7cth).
+
+## Guardar una copia de tus ecos (opt-in, por eco)
+
+Eco es **efímero**: el beacon geo dura 24 h y lo que sobrevive es la copia local de
+quien lo guardó. Con un [content node](https://content.dotrino.com/) propio encendido,
+Eco ofrece además **guardar una copia tuya en tu propia máquina** — y eso cambia lo que
+la app promete, así que se pide **eco a eco** y nunca se hace por detrás.
+
+- **Lo efímero sigue siendo el default.** El interruptor del composer no se recuerda
+  entre un eco y otro: publicar creyendo que se borra solo y toparte el enlace vivo un
+  año después es exactamente lo que no hacemos.
+- **Va cifrado.** El node guarda bytes que no puede leer; la llave sale en el
+  `#fragment` del enlace y nunca llega a un servidor.
+- **Sin node, Eco funciona igual.** El interruptor no aparece y ya está. Ninguna app del
+  ecosistema puede exigir que tengas una máquina encendida.
+- **El reparto con el almacén** (CONVENCIONES §4): en el `@dotrino/store` vive el
+  **índice** de lo guardado —qué eco es qué `cid`—, porque tiene que estar disponible
+  aunque la máquina esté apagada; en el content viven **los bytes**, que es un objeto
+  firmado e inmutable y por eso encaja en el direccionado por hash. La línea de tiempo
+  no es un blob: es una lista que crece.
