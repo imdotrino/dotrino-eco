@@ -32,6 +32,9 @@ async function ensureConnected () {
   return client
 }
 
+/** El cliente del proxio, conectado e identificado (para leer lo público del content). */
+export async function getClient () { return ensureConnected() }
+
 /** Suscribirse a mensajes entrantes (reply/repost/mención de otros). */
 export function onMessage (fn) {
   handlers.add(fn)

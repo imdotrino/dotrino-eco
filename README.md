@@ -58,6 +58,19 @@ Parte del ecosistema **Dotrino** — *tu información, en tu servidor, bajo tus
 reglas*. Soporte: [Ko-fi](https://ko-fi.com/dotrino) ·
 [Discord](https://discord.gg/D648uq7cth).
 
+## Imágenes (con tu propia máquina)
+
+Si tienes un [content node](https://content.dotrino.com/) encendido, puedes **añadir
+una imagen** a un eco. La imagen se guarda **en tu propia máquina**, pública, y vive lo
+mismo que el eco (24 horas). Quien lo lee la recibe **por la red de Dotrino** desde tu
+máquina —o por la URL de tu almacén, si tienes uno— y nunca pasa por un servidor de
+nadie. Si tu máquina está apagada, los demás ven tu eco sin la imagen. **Sin node, el
+botón no aparece y Eco sigue siendo texto**, como siempre.
+
+Lo mismo hace que tu **enlace** a un eco se abra en manos de otra persona mientras tu
+máquina esté encendida: tu node guarda una copia pública de cada eco que publicas, con
+su misma vida.
+
 ## Guardar una copia de tus ecos (opt-in, por eco)
 
 Eco es **efímero**: el beacon geo dura 24 h y lo que sobrevive es la copia local de

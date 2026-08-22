@@ -87,9 +87,32 @@ recencia), **Tu gente** (sube afinidad+reputación), **Cerca** (sube geo),
   "expiresAt": 0,          // createdAt + 24h, o bump por rep/reply
   "repostOf": null,        // pubkey+id del original si es repost
   "replyTo": null,         // pubkey+id del original si es reply
-  "sig": "…"               // firma del vault sobre el contenido canónico
+  "media": null,           // { owner, cid, mime, width, height } — la imagen, en el
+                           //   content node del autor (pública, vive lo que el eco)
+  "sig": "…"               // firma del vault sobre el contenido canónico (media incluida)
 }
 ```
+
+### Imágenes y lo público en el content (2026-08-22)
+
+El pin geo lleva el eco, no sus bytes: **la imagen va al content node del autor** como
+blob **público y en claro, con el mismo TTL de 24 h** que el beacon (lo efímero sigue
+siendo efímero; solo «guardar una copia» la retiene). El eco lleva la referencia
+`{ owner, cid }` **dentro de lo firmado**: nadie cambia la imagen sin romper la firma.
+
+Quien lee resuelve la imagen **por la red de Dotrino** (`fetchPublic` del pilar, DISENO
+§16 de content): busca el node del dueño por el canal del proxio y le pide el `cid`. Si
+el dueño tiene bucket, el node contesta la **URL** y el `<img>` carga de ahí; si no,
+contesta los **bytes** (≤ 256 KB) y se envuelven en una URL local. Sin ningún node del
+dueño encendido, la imagen no aparece y **el eco se ve igual, con su texto**.
+
+Además de la imagen, el node guarda una **copia pública del eco** (JSON firmado) con la
+misma vida: es lo que hace que mi enlace `#owner/cid` se abra en manos de otra persona.
+El índice de esas copias va en el **store** (`eco:public`); los bytes, en el node.
+
+**El content es una extensión del store, nunca un requisito:** sin node, el botón de
+imagen no aparece y eco publica texto como siempre; si el node falla a media subida,
+el eco sale sin imagen y se dice. Pruebas en `test/` (con y sin node).
 
 ## 5. Flujos / flows
 

@@ -9,6 +9,8 @@ import { getIdentity } from './services/identity'
 import { getReputation } from './services/reputation'
 import { useBackLayer } from '@dotrino/nav/vue'
 import iconUrl from '/icon.svg'
+import EcoImage from './components/EcoImage.vue'
+import { shrinkImage } from './services/image'
 
 const feed = useFeed()
 // Idioma: el toggle vive en <dotrino-topbar> y es la fuente de verdad; persiste
@@ -56,6 +58,9 @@ const T = {
     keepOn: 'Guardada en tu máquina',
     keepHint: 'Se queda en tu propia máquina. Sin esto, el eco desaparece en 24 horas.',
     keepLink: 'Copiar el enlace de tu copia',
+    imgAdd: 'Añadir una imagen', imgRemove: 'Quitar la imagen',
+    imgHint: 'La imagen se guarda en tu propia máquina y se ve mientras esté encendida (o siempre, si tienes un almacén). Desaparece a las 24 horas, como el eco.',
+    imgBad: 'Ese archivo no es una imagen.',
     mutedTitle: 'Silenciados', unmute: 'Quitar silencio', mute0: 'Silenciar',
     reputation: 'Reputación', affinity: 'Afinidad', theirEcos: 'Sus ecos', you2: 'Tú',
     shareHeading: 'Compartir eco', copy: 'Copiar enlace', copied: '¡Enlace copiado!',
@@ -89,6 +94,9 @@ const T = {
     keepOn: 'Kept on your machine',
     keepHint: 'It stays on your own machine. Without this, the eco is gone in 24 hours.',
     keepLink: 'Copy the link to your copy',
+    imgAdd: 'Add an image', imgRemove: 'Remove the image',
+    imgHint: 'The image is kept on your own machine and shows while it is on (or always, if you have a storage bucket). It is gone in 24 hours, like the eco.',
+    imgBad: 'That file is not an image.',
     mutedTitle: 'Muted', unmute: 'Unmute', mute0: 'Mute',
     reputation: 'Reputation', affinity: 'Affinity', theirEcos: 'Their ecos', you2: 'You',
     shareHeading: 'Share eco', copy: 'Copy link', copied: 'Link copied!',
@@ -109,6 +117,29 @@ const T = {
 const t = computed(() => T[lang.value])
 
 const text = ref('')
+// Imagen del próximo eco: { bytes, mime, width, height, preview }. Solo se ofrece
+// con node (sin dónde guardarla no hay imagen), y se prepara al elegirla para que
+// publicar no espere al encogido.
+const image = ref(null)
+const imageInput = ref(null)
+const imageError = ref(null)
+async function pickImage (e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  imageError.value = null
+  try {
+    const shrunk = await shrinkImage(file)
+    if (image.value?.preview) URL.revokeObjectURL(image.value.preview)
+    image.value = { ...shrunk, preview: URL.createObjectURL(new Blob([shrunk.bytes], { type: shrunk.mime })) }
+  } catch (err) {
+    imageError.value = err?.code === 'bad-image' ? t.value.imgBad : err.message
+  }
+}
+function dropImage () {
+  if (image.value?.preview) URL.revokeObjectURL(image.value.preview)
+  image.value = null
+}
 const composeCtx = ref(null)   // { mode:'reply'|'reeco', eco } cuando respondés/re-ecoás
 const composerEl = ref(null)
 const search = ref('')
@@ -179,14 +210,15 @@ onBeforeUnmount(() => {
 
 // Re-eco puede ir sin texto (cita sola); reply/eco normal requieren texto.
 const canPublish = computed(() => !feed.standalone && feed.pos && !feed.busy &&
-  (text.value.trim().length > 0 || composeCtx.value?.mode === 'reeco'))
+  (text.value.trim().length > 0 || composeCtx.value?.mode === 'reeco' || !!image.value))
 const radiusLabel = (m) => m === 0 ? t.value.global : (m >= 1000 ? `${m / 1000}km` : `${m}m`)
 
 async function doPublish () {
   if (!canPublish.value) return
   const context = composeCtx.value ? { mode: composeCtx.value.mode, target: composeCtx.value.eco } : null
-  const eco = await feed.publish({ text: text.value, context })
-  if (eco) { text.value = ''; composeCtx.value = null }
+  const img = image.value ? { bytes: image.value.bytes, mime: image.value.mime, width: image.value.width, height: image.value.height } : null
+  const eco = await feed.publish({ text: text.value, context, image: img })
+  if (eco) { text.value = ''; composeCtx.value = null; dropImage() }
 }
 function startCompose (mode, eco, label) {
   composeCtx.value = { mode, eco, label }
@@ -434,8 +466,19 @@ function ttlText (eco) {
       </div>
       <textarea ref="composerEl" v-model="text" :maxlength="280" data-testid="composer"
         :placeholder="composeCtx?.mode === 'reeco' ? t.addComment : t.placeholder"></textarea>
+      <div v-if="image" class="img-preview" data-testid="image-preview">
+        <img :src="image.preview" alt="" />
+        <button class="ctx-x" :title="t.imgRemove" data-testid="image-remove" @click="dropImage">✕</button>
+      </div>
+      <p v-if="imageError" class="keep-hint" data-testid="image-error">{{ imageError }}</p>
       <div class="composer-row">
         <span class="count">{{ text.length }}/280</span>
+        <!-- Imagen: solo si hay dónde guardarla (tu node). Sin node, eco es texto,
+             como siempre: el content es una extensión del store, no un requisito. -->
+        <template v-if="feed.hasNode">
+          <input ref="imageInput" type="file" accept="image/*" hidden @change="pickImage" data-testid="image-input" />
+          <button class="chip" :title="t.imgHint" data-testid="image-add" @click="imageInput.click()">🖼 {{ t.imgAdd }}</button>
+        </template>
         <!-- Guardar una copia: opt-in POR ECO y sin memoria entre uno y otro. Lo
              efímero es el default de Eco y guardar cambia esa promesa, así que se
              pide cada vez en vez de dejarlo encendido. Solo aparece si de verdad
@@ -481,6 +524,7 @@ function ttlText (eco) {
         <p>{{ item.eco.replyTo.text }}</p>
       </blockquote>
       <div class="eco-body" v-if="item.eco.text">{{ item.eco.text }}</div>
+      <EcoImage v-if="item.eco.media" :media="item.eco.media" :alt="item.eco.text || ''" />
       <blockquote class="quoted" v-if="item.eco.quoted">
         <span class="pk pk-link" @click="openProfile(item.eco.quoted.author)">@{{ displayName(item.eco.quoted.author, item.eco.quoted.name, item.eco.quoted.authorName) }}</span>
         <p>{{ item.eco.quoted.text }}</p>

@@ -10,15 +10,21 @@ import { connect as proxyConnect, onMessage, sendEcoEvent } from '../services/pr
 import { shouldNotifyType, ensurePushSubscribed } from '../services/notifications'
 import {
   saveEco, saveMine, loadAllEcos, pushInbox, loadInbox, clearInbox, muteAuthor,
-  saveArchived, loadArchived, removeArchived
+  saveArchived, loadArchived, removeArchived,
+  savePublicRef, loadPublicRefs
 } from '../services/store'
 import {
   getContent, retry as retryContent, archiveEco, readEco, forgetEco, buildUrl, parseRef
 } from '../services/content'
 import { repOf, isEndorsed, warmRep } from '../services/reputation'
 import { rankFeed, isAlive, PRESETS } from './ranking'
+import { canonical } from './canonical'
+import { TTL_24H } from './constants'
+import { attachImage, publishPublicCopy, pinPublic, mediaOf } from '../services/publicEco'
+import { getClient as getProxyClient } from '../services/proxy'
+import { setLocalMedia } from '../services/media-app'
+import { fetchPublic } from '@dotrino/content-client/public'
 
-const TTL_24H = 24 * 60 * 60 * 1000
 const POLL_MS = 60_000
 const RADII = [5000, 20000, 100000, 0] // 5km, 20km, 100km, global(0)
 
@@ -45,6 +51,11 @@ export const useFeed = defineStore('feed', {
     nodeChecked: false,       // ya se miró (para no pintar el interruptor a ciegas)
     keepNext: false,          // el interruptor del composer, para el PRÓXIMO eco
     archived: [],             // punteros { ecoId, cid, key, owner } desde el store
+    // --- lo PÚBLICO en el node (copia en claro + imagen, con la vida del beacon) ---
+    // Es lo que hace que un enlace mío se abra en manos de otro y que mis imágenes se
+    // vean: el índice vive en el store, los bytes en el node. Sin node no existe y
+    // el eco sale solo con texto, como siempre.
+    publicRefs: [],           // punteros { ecoId, cid, owner, mediaCid, expiresAt }
     nodeError: null,          // lo último que falló al guardar, para decirlo
     interactions: new Map(),  // authorPk → nº interacciones (afinidad)
     reactions: {},            // authorPk → net likes(+1)/dislikes(-1) (persistente)
@@ -54,6 +65,7 @@ export const useFeed = defineStore('feed', {
     busy: false,
     locating: false,
     _poll: null,
+    _ownerId: null,           // mi ownerId en el content (huella de la maestra), cacheado
     _off: null,
     _watch: null
   }),
@@ -67,7 +79,9 @@ export const useFeed = defineStore('feed', {
     allEcos: (s) => [...s.posts.values()],  // para armar hilos (incluye expirados que tengamos)
     unread: (s) => s.notifications.filter((n) => !n.read).length,
     /** ecoId → puntero, para saber de un vistazo cuáles están guardados. */
-    archivedById: (s) => Object.fromEntries(s.archived.map((a) => [a.ecoId, a]))
+    archivedById: (s) => Object.fromEntries(s.archived.map((a) => [a.ecoId, a])),
+    /** ecoId → puntero público vigente (los vencidos ya no sirven para enlazar). */
+    publicById: (s) => Object.fromEntries(s.publicRefs.filter((p) => !p.expiresAt || p.expiresAt > Date.now()).map((p) => [p.ecoId, p]))
   },
 
   actions: {
@@ -83,6 +97,7 @@ export const useFeed = defineStore('feed', {
       // El índice de lo archivado sale del STORE, así que está aunque el node esté
       // apagado: se ve qué guardaste sin depender de que la máquina esté encendida.
       this.archived = (await loadArchived()).filter((a) => a?.cid)
+      this.publicRefs = (await loadPublicRefs()).filter((p) => p?.cid)
       if (!this.standalone) {
         await proxyConnect()
         this._off = onMessage((m) => this._onProxy(m))
@@ -184,12 +199,29 @@ export const useFeed = defineStore('feed', {
     // Solo se introduce texto (enlaces y tags se extraen del propio texto).
     // context opcional: { mode:'reply'|'reeco', target } — reply crea un eco
     // HERMANO (replyTo) y re-eco crea un eco que CITA al original (repostOf+quoted).
-    async publish ({ text, context = null, keep = null }) {
+    async publish ({ text, context = null, keep = null, image = null }) {
       if (this.standalone || !this.pos) { this.geoError = 'necesitás vault y ubicación para publicar'; return null }
       this.busy = true
       try {
         const now = Date.now()
         const body = String(text || '').slice(0, 280)
+        // La IMAGEN va al node ANTES de firmar: su `cid` forma parte de lo firmado.
+        // Sin node no hay imagen y se dice; si el node falla, el eco sale sin ella y
+        // también se dice — nunca se deja de publicar por la imagen.
+        let media = null
+        if (image) {
+          const cc = await getContent()
+          if (!cc) {
+            this.nodeError = 'no hay ningún node tuyo encendido: el eco sale sin la imagen'
+          } else {
+            try {
+              media = await attachImage({ cc, image, ttlMs: TTL_24H })
+              if (media) setLocalMedia(media.cid, image.bytes, media.mime)
+            } catch (e) {
+              this.nodeError = `no se pudo subir la imagen (${e.message}): el eco sale sin ella`
+            }
+          }
+        }
         const eco = {
           id: uuidv4(),
           author: this.myPubkey,
@@ -200,7 +232,8 @@ export const useFeed = defineStore('feed', {
           lat: this.pos.lat, lng: this.pos.lng,
           createdAt: now,
           expiresAt: now + TTL_24H,
-          repostOf: null, replyTo: null, quoted: null
+          repostOf: null, replyTo: null, quoted: null,
+          media
         }
         const target = context?.target
         if (context?.mode === 'reply' && target) {
@@ -218,6 +251,20 @@ export const useFeed = defineStore('feed', {
         this._learn(eco.tags)
         if (target) { this._learn(target.tags); this._bumpAffinity(target.author) }
         await publishEco(eco, this.pos.lat, this.pos.lng, TTL_24H)
+        // La COPIA PÚBLICA en mi node (si lo hay): es lo que abre mi enlace en manos de
+        // otro. Va después de publicar y con la vida del beacon. Si no hay node, no
+        // existe y no pasa nada; si falla, se dice y el eco ya está publicado.
+        try {
+          const cc = await getContent()
+          const ref = await publishPublicCopy({ cc, eco, ttlMs: TTL_24H })
+          if (ref) {
+            const entry = await savePublicRef({ ecoId: eco.id, cid: ref.cid, owner: ref.owner, mediaCid: media?.cid || null, expiresAt: eco.expiresAt })
+            this.publicRefs = [{ ...entry, ecoId: eco.id, cid: ref.cid, owner: ref.owner, mediaCid: media?.cid || null, expiresAt: eco.expiresAt }, ...this.publicRefs]
+            if (keep ?? this.keepNext) await pinPublic({ cc, eco, ref })
+          }
+        } catch (e) {
+          this.nodeError = `el eco se publicó, pero su copia pública no (${e.message})`
+        }
         // avisar al original por proxy → rehidrata su beacon y le notifica.
         // Mandamos el eco (plano) para que pueda mostrar preview e ingerirlo
         // aunque no lo descubra por geo (entrega directa al destinatario).
@@ -312,22 +359,55 @@ export const useFeed = defineStore('feed', {
       const r = parseRef(fragment ?? location.hash)
       if (!r) return null
       try {
-        const eco = await readEco(r)
+        // Con llave es una copia CIFRADA: solo la abre un aparato de su dueño (la mía).
+        // Sin llave es una copia PÚBLICA: se le pide al node del dueño por la red,
+        // sea quien sea — si está encendido. Lo mío se intenta primero en mi node.
+        let eco = null
+        if (r.key || (this.myPubkey && r.owner === (await this.myOwnerId()))) {
+          eco = await readEco(r).catch((e) => { if (r.key) throw e; return null })
+        }
+        if (!eco) eco = await this.readPublic(r)
         if (!eco?.id) return null
         this.posts.set(eco.id, eco)
         await this.rebuild()
         return eco
       } catch (e) {
-        this.nodeError = e?.code === 'not-mine'
-          ? 'ese enlace es de otra persona: todavía no se puede abrir aquí'
+        this.nodeError = e?.code === 'no-node'
+          ? 'la máquina de esa persona no está encendida ahora mismo: inténtalo más tarde'
           : `no se pudo abrir ese enlace (${e.message})`
         return null
       }
     },
 
+    /** Mi `ownerId` (la huella de mi maestra), tal como lo usa el content. */
+    async myOwnerId () {
+      if (this._ownerId) return this._ownerId
+      const cc = await getContent()
+      this._ownerId = cc?.owner || null
+      return this._ownerId
+    },
+
+    /**
+     * Leer la copia pública de un eco por la red de Dotrino: el node del dueño
+     * contesta solo lo marcado público, y los bytes vuelven verificados por el cid.
+     * @param {{ owner: string, cid: string }} r
+     */
+    async readPublic (r) {
+      const client = await getProxyClient()
+      const res = await fetchPublic({ client, owner: r.owner, cid: r.cid, full: true })
+      let bytes = res.bytes
+      if (!bytes && res.url) bytes = new Uint8Array(await (await fetch(res.url)).arrayBuffer())
+      if (!bytes) throw Object.assign(new Error('sin contenido'), { code: 'empty' })
+      const eco = JSON.parse(new TextDecoder().decode(bytes))
+      if (!eco?.id || !eco.author) throw Object.assign(new Error('eso no es un eco'), { code: 'bad-eco' })
+      if (eco.media && !mediaOf(eco)) eco.media = null
+      return eco
+    },
+
     /** El enlace compartible de un eco archivado (la referencia va en el #fragment). */
     linkFor (ecoId) {
-      const ptr = this.archivedById[ecoId]
+      // La copia cifrada (guardada) tiene prioridad: dura. Si no, la pública mientras viva.
+      const ptr = this.archivedById[ecoId] || this.publicById[ecoId]
       return ptr ? buildUrl(ptr, location.origin + location.pathname) : null
     },
 
@@ -532,12 +612,6 @@ function extractTags (text) {
 }
 
 // Serialización canónica mínima para firmar (orden estable de claves de contenido).
-function canonical (eco) {
-  return JSON.stringify({
-    id: eco.id, author: eco.author, authorName: eco.authorName, text: eco.text, links: eco.links,
-    tags: eco.tags, createdAt: eco.createdAt, repostOf: eco.repostOf, replyTo: eco.replyTo, quoted: eco.quoted
-  })
-}
 
 // El payload del pin geo ES el eco; el server ya verificó la firma del sobre,
 // así que el author autoritativo es el pubkey del pin.
@@ -547,6 +621,7 @@ function pinToEco (pin) {
   return {
     ...e,
     author: pin.publickey || e.author,
+    media: mediaOf(e),
     lat: pin.lat ?? e.lat, lng: pin.lng ?? e.lng,
     distanceMeters: pin.distanceMeters,
     expiresAt: e.expiresAt || (pin.expiresAt ? new Date(pin.expiresAt).getTime() : (e.createdAt + TTL_24H))

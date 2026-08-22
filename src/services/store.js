@@ -12,6 +12,9 @@ const INBOX = 'eco:inbox'
 // "la actual" de nada; saber eso es del store. Y tiene que estar disponible aunque
 // el node esté apagado, que es la regla de entrada del store (CONVENCIONES §4).
 const ARCHIVE = 'eco:archive'
+// Punteros a lo PÚBLICO de mis ecos en el content (copia en claro + imagen): el
+// índice va en el store —que siempre está— y los bytes en el node.
+const PUBLIC = 'eco:public'
 const authorKey = (pk) => 'eco:' + pk
 
 let store = null
@@ -81,6 +84,23 @@ export async function loadArchived () {
 export async function removeArchived (entryId) {
   const s = await getStore()
   await s.removeMessage(ARCHIVE, entryId).catch(() => {})
+}
+
+/** Puntero a la copia pública de un eco (y su imagen) en mi node. */
+export async function savePublicRef ({ ecoId, cid, owner, mediaCid = null, expiresAt = 0 }) {
+  const s = await getStore()
+  return s.appendMessage(PUBLIC, plain({ kind: 'public', ecoId, cid, owner, mediaCid, expiresAt, createdAt: Date.now() }))
+}
+
+/** @returns {Promise<any[]>} */
+export async function loadPublicRefs () {
+  const s = await getStore()
+  return s.listThread(PUBLIC, { limit: 500 }).catch(() => [])
+}
+
+export async function removePublicRef (entryId) {
+  const s = await getStore()
+  await s.removeMessage(PUBLIC, entryId).catch(() => {})
 }
 
 /** Bandeja efímera: eventos de desconocidos avalados pendientes de aceptar. */
