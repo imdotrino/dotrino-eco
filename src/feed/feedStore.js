@@ -246,25 +246,28 @@ export const useFeed = defineStore('feed', {
           }
         }
         eco.sig = (await signData(canonical(eco))) || null
-        await saveMine(eco)
-        this.posts.set(eco.id, eco)
-        this._learn(eco.tags)
-        if (target) { this._learn(target.tags); this._bumpAffinity(target.author) }
-        await publishEco(eco, this.pos.lat, this.pos.lng, TTL_24H)
         // La COPIA PÚBLICA en mi node (si lo hay): es lo que abre mi enlace en manos de
-        // otro. Va después de publicar y con la vida del beacon. Si no hay node, no
-        // existe y no pasa nada; si falla, se dice y el eco ya está publicado.
+        // otro, con la vida del beacon. Va ANTES del beacon para que el beacon lleve la
+        // referencia (`pub`, fuera de lo firmado: el cid es el hash del eco ya firmado) y
+        // quien lo vea pueda compartir ESTE eco. Si no hay node, no existe y no pasa nada;
+        // si falla, se dice y el eco sale igual, solo sin enlace propio.
         try {
           const cc = await getContent()
           const ref = await publishPublicCopy({ cc, eco, ttlMs: TTL_24H })
           if (ref) {
+            eco.pub = { owner: ref.owner, cid: ref.cid }
             const entry = await savePublicRef({ ecoId: eco.id, cid: ref.cid, owner: ref.owner, mediaCid: media?.cid || null, expiresAt: eco.expiresAt })
             this.publicRefs = [{ ...entry, ecoId: eco.id, cid: ref.cid, owner: ref.owner, mediaCid: media?.cid || null, expiresAt: eco.expiresAt }, ...this.publicRefs]
             if (keep ?? this.keepNext) await pinPublic({ cc, eco, ref })
           }
         } catch (e) {
-          this.nodeError = `el eco se publicó, pero su copia pública no (${e.message})`
+          this.nodeError = `el eco sale, pero sin copia pública (${e.message})`
         }
+        await saveMine(eco)
+        this.posts.set(eco.id, eco)
+        this._learn(eco.tags)
+        if (target) { this._learn(target.tags); this._bumpAffinity(target.author) }
+        await publishEco(eco, this.pos.lat, this.pos.lng, TTL_24H)
         // avisar al original por proxy → rehidrata su beacon y le notifica.
         // Mandamos el eco (plano) para que pueda mostrar preview e ingerirlo
         // aunque no lo descubra por geo (entrega directa al destinatario).
@@ -407,8 +410,9 @@ export const useFeed = defineStore('feed', {
     /** El enlace compartible de un eco archivado (la referencia va en el #fragment). */
     linkFor (ecoId) {
       // La copia cifrada (guardada) tiene prioridad: dura. Si no, la pública mientras viva.
-      const ptr = this.archivedById[ecoId] || this.publicById[ecoId]
-      return ptr ? buildUrl(ptr, location.origin + location.pathname) : null
+      // Y para un eco AJENO, la referencia que su autor puso en el beacon (`pub`).
+      const ptr = this.archivedById[ecoId] || this.publicById[ecoId] || this.posts.get(ecoId)?.pub
+      return ptr?.cid && ptr?.owner ? buildUrl(ptr, location.origin + location.pathname) : null
     },
 
     // --- Descubrir (poll geo) ---
