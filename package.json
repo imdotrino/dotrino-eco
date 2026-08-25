@@ -11,7 +11,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@dotrino/content-client": "0.2.2",
+    "@dotrino/content-client": "0.2.3",
     "@dotrino/geo": "0.2.1",
     "@dotrino/identity": "0.53.0",
     "@dotrino/install": "0.3.1",
