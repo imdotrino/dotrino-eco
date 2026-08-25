@@ -23,8 +23,14 @@ test('muerto pero ABIERTO POR ENLACE: se queda — para eso está pineada su cop
   assert.equal(survives(muerto, { now, opened: true }), true)
 })
 
-test('muerto pero REACCIONADO: se queda', () => {
-  assert.equal(survives(muerto, { now, reacted: true }), true)
+test('muerto pero con 👍: se queda — es «esto lo quiero conservar»', () => {
+  assert.equal(survives(muerto, { now, liked: true }), true)
+})
+
+test('el 👎 NO lo conserva: baja la afinidad y lo deja morir a su hora', () => {
+  // Se miraba «hay reacción» sin mirar cuál, así que un 👎 fijaba el eco en el feed
+  // para siempre: exactamente lo contrario de lo que pide quien lo marca.
+  assert.equal(survives(muerto, { now, liked: false }), false)
 })
 
 test('sin expiresAt se cuentan 24 h desde que se creó', () => {

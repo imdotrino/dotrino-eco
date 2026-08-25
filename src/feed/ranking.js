@@ -47,13 +47,18 @@ export function isAlive (eco, now) {
 /**
  * ¿Se queda en el feed? Un eco muere en la red a las 24 h, pero hay DOS razones para
  * seguir enseñándolo:
- *   · `reacted` — reaccionaste (like/dislike): es tuyo, no se te desaparece de delante.
- *   · `opened`  — llegaste por su ENLACE. Un enlace se comparte justamente para que abra
+ *   · `liked` — le diste 👍: es tuyo, se queda como copia tuya.
+ *   · `opened` — llegaste por su ENLACE. Un enlace se comparte justamente para que abra
  *     cuando el eco ya no se descubre —por eso su copia pública va pineada—, así que
  *     filtrarlo por vencido dejaba la app como si el enlace no hubiera hecho nada.
+ *
+ * **El 👎 NO lo conserva**, y esto era un fallo: se miraba «hay reacción» sin mirar
+ * cuál, así que marcar un eco con 👎 te lo fijaba en el feed para siempre — lo contrario
+ * de lo que pide quien lo marca. Un 👎 baja la afinidad con su autor y deja que el eco se
+ * muera a su hora, que es lo que hace cualquier otro.
  */
-export const survives = (eco, { now = Date.now(), reacted = false, opened = false } = {}) =>
-  isAlive(eco, now) || !!reacted || !!opened
+export const survives = (eco, { now = Date.now(), liked = false, opened = false } = {}) =>
+  isAlive(eco, now) || !!liked || !!opened
 
 /**
  * Puntúa un eco. ctx aporta las señales que no están en el eco:
@@ -75,7 +80,7 @@ export function scoreEco (eco, ctx, presetKey, now) {
  */
 export function rankFeed (items, presetKey, now = Date.now()) {
   return items
-    .filter(({ eco, ctx }) => survives(eco, { now, reacted: ctx?.keep, opened: ctx?.opened }))
+    .filter(({ eco, ctx }) => survives(eco, { now, liked: ctx?.keep, opened: ctx?.opened }))
     .map((it) => ({ ...it, score: scoreEco(it.eco, it.ctx, presetKey, now) }))
     .sort((a, b) => b.score - a.score)
 }

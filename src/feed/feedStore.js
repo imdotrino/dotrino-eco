@@ -47,6 +47,11 @@ export const useFeed = defineStore('feed', {
     // así que el filtro de vivos no puede tragárselo: quien llega por el enlace vería la
     // app como si no hubiera pasado nada.
     opened: {},
+    // Qué eco de los míos está AHORA en mi beacon. Geo guarda UN pin por identidad
+    // (`ON CONFLICT (pubkey_id) DO UPDATE`, y es una decisión de privacidad: varios pins
+    // por persona serían un rastro de por dónde anduvo), así que publicar cualquier otro
+    // PISA este. Sin saber cuál es, rehidratar un eco viejo borraba el de hoy.
+    myPinId: null,
     // --- archivo en el node propio (opt-in por eco, DISENO §3.2 de content) ---
     // Eco es efímero: el beacon dura 24 h y lo demás es tu copia local. Guardar un
     // eco en tu node añade TU propia copia, y por eso se pide eco a eco en vez de
@@ -180,6 +185,7 @@ export const useFeed = defineStore('feed', {
         if (p.reactions && typeof p.reactions === 'object') this.reactions = p.reactions
         if (p.myReaction && typeof p.myReaction === 'object') this.myReaction = p.myReaction
         if (p.muted && typeof p.muted === 'object') this.muted = p.muted
+        if (typeof p.myPinId === 'string') this.myPinId = p.myPinId
         if (Array.isArray(p.notifications)) this.notifications = p.notifications
       } catch (_) { /* prefs corruptas → defaults */ }
     },
@@ -188,6 +194,7 @@ export const useFeed = defineStore('feed', {
         localStorage.setItem('eco:prefs', JSON.stringify({
           radius: this.radiusMeters, preset: this.preset, tags: this.myTags,
           reactions: this.reactions, myReaction: this.myReaction, muted: this.muted,
+          myPinId: this.myPinId,
           notifications: this.notifications.slice(0, 50)
         }))
       } catch (_) { /* sin localStorage */ }
@@ -273,6 +280,8 @@ export const useFeed = defineStore('feed', {
         this._learn(eco.tags)
         if (target) { this._learn(target.tags); this._bumpAffinity(target.author) }
         await publishEco(eco, this.pos.lat, this.pos.lng, TTL_24H)
+        this.myPinId = eco.id   // el beacon es único: este acaba de ocupar el sitio
+        this._savePrefs()
         // avisar al original por proxy → rehidrata su beacon y le notifica.
         // Mandamos el eco (plano) para que pueda mostrar preview e ingerirlo
         // aunque no lo descubra por geo (entrega directa al destinatario).
@@ -450,8 +459,9 @@ export const useFeed = defineStore('feed', {
     // --- Reconstruir el feed rankeado (capa 2) ---
     async rebuild () {
       const now = Date.now()
-      // Un eco reaccionado (like/dislike) se conserva aunque haya expirado.
-      const kept = (e) => survives(e, { now, reacted: this.myReaction[e.id], opened: this.opened[e.id] })
+      // Un eco al que diste 👍 se conserva aunque haya expirado. El 👎 no: baja la
+      // afinidad y lo deja morir a su hora (fijarlo era justo lo contrario de lo pedido).
+      const kept = (e) => survives(e, { now, liked: this.myReaction[e.id] === 'like', opened: this.opened[e.id] })
       const others = [...this.posts.values()].filter((e) => kept(e) && e.author !== this.myPubkey && !this.muted[e.author])
       const mine = [...this.posts.values()].filter((e) => e.author === this.myPubkey && survives(e, { now, opened: this.opened[e.id] }))
       // enriquecer con señales de ctx
@@ -462,7 +472,7 @@ export const useFeed = defineStore('feed', {
           affinity: await affinityOf(eco.author, this.interactions.get(eco.author) || 0, this.reactions[eco.author] || 0),
           reputation: await repOf(eco.author),
           reaction: this.myReaction[eco.id] || null,
-          keep: !!this.myReaction[eco.id],
+          keep: this.myReaction[eco.id] === 'like',
           opened: !!this.opened[eco.id],
           myTags: this.myTags,
           radiusMeters: this.radiusMeters
@@ -493,7 +503,9 @@ export const useFeed = defineStore('feed', {
       } else {
         this.myReaction[id] = type
         this._addReaction(author, type === 'like' ? 1 : -1)
-        await saveEco({ ...eco })           // like o dislike: persistir en local
+        // Solo el 👍 se queda una copia: es «esto lo quiero conservar». El 👎 dice lo
+        // contrario, y guardarlo era fijarlo en el feed para siempre.
+        if (type === 'like') await saveEco({ ...eco })
       }
       this._savePrefs()
       await this.rebuild()
@@ -509,8 +521,15 @@ export const useFeed = defineStore('feed', {
       const incoming = p.eco
       const aboutMyEco = p.refId && this.posts.get(p.refId)?.author === this.myPubkey
 
-      // ¿tocaron un eco mío? → rehidrato mi beacon (resetea TTL)
-      if ((type === 'eco-reply' || type === 'eco-repost') && aboutMyEco) {
+      // ¿tocaron el eco que tengo EN EL BEACON? → lo rehidrato (resetea TTL).
+      //
+      // Solo ese. El pin es UNO por identidad y publicar otro lo pisa, así que rehidratar
+      // un eco mío más antiguo era republicarlo BORRANDO el de hoy: alguien respondía a
+      // algo de la semana pasada y mi eco de esta mañana desaparecía del radio de todos,
+      // sin que yo tocara nada. Un eco que ya no está en mi pin no vuelve por una
+      // reacción: quien quiera traerlo lo re-eco, que es un eco suyo citando el mío
+      // (`repostOf` + `quoted`) y gasta SU beacon, no el mío.
+      if ((type === 'eco-reply' || type === 'eco-repost') && aboutMyEco && p.refId === this.myPinId) {
         const mineEco = this.posts.get(p.refId)
         mineEco.expiresAt = Date.now() + TTL_24H
         if (this.pos) await publishEco(mineEco, this.pos.lat, this.pos.lng, TTL_24H)
@@ -562,6 +581,8 @@ export const useFeed = defineStore('feed', {
     async deleteMine (eco) {
       this.posts.delete(eco.id)
       try { await removeEco() } catch (_) {}
+      // El beacon queda vacío: si no, una reacción tardía rehidrataría un eco retirado.
+      if (this.myPinId === eco.id) { this.myPinId = null; this._savePrefs() }
       await this.rebuild()
     },
 
