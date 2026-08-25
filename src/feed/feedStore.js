@@ -17,7 +17,7 @@ import {
   getContent, retry as retryContent, archiveEco, readEco, forgetEco, buildUrl, parseRef
 } from '../services/content'
 import { repOf, isEndorsed, warmRep } from '../services/reputation'
-import { rankFeed, isAlive, PRESETS } from './ranking'
+import { rankFeed, isAlive, survives, PRESETS } from './ranking'
 import { canonical } from './canonical'
 import { TTL_24H } from './constants'
 import { attachImage, publishPublicCopy, pinPublic, mediaOf } from '../services/publicEco'
@@ -42,6 +42,11 @@ export const useFeed = defineStore('feed', {
     posts: new Map(),         // id → eco (cache en memoria)
     feed: [],                 // [{ eco, ctx, score }]
     inbox: [],
+    // Ecos abiertos por ENLACE en esta sesión. Un enlace se comparte precisamente para que
+    // siga abriendo cuando el eco ya murió en la red —por eso su copia pública va pineada—,
+    // así que el filtro de vivos no puede tragárselo: quien llega por el enlace vería la
+    // app como si no hubiera pasado nada.
+    opened: {},
     // --- archivo en el node propio (opt-in por eco, DISENO §3.2 de content) ---
     // Eco es efímero: el beacon dura 24 h y lo demás es tu copia local. Guardar un
     // eco en tu node añade TU propia copia, y por eso se pide eco a eco en vez de
@@ -372,6 +377,7 @@ export const useFeed = defineStore('feed', {
         if (!eco) eco = await this.readPublic(r)
         if (!eco?.id) return null
         this.posts.set(eco.id, eco)
+        this.opened[eco.id] = true
         await this.rebuild()
         return eco
       } catch (e) {
@@ -445,9 +451,9 @@ export const useFeed = defineStore('feed', {
     async rebuild () {
       const now = Date.now()
       // Un eco reaccionado (like/dislike) se conserva aunque haya expirado.
-      const kept = (e) => isAlive(e, now) || !!this.myReaction[e.id]
+      const kept = (e) => survives(e, { now, reacted: this.myReaction[e.id], opened: this.opened[e.id] })
       const others = [...this.posts.values()].filter((e) => kept(e) && e.author !== this.myPubkey && !this.muted[e.author])
-      const mine = [...this.posts.values()].filter((e) => e.author === this.myPubkey && isAlive(e, now))
+      const mine = [...this.posts.values()].filter((e) => e.author === this.myPubkey && survives(e, { now, opened: this.opened[e.id] }))
       // enriquecer con señales de ctx
       const items = await Promise.all(others.map(async (eco) => ({
         eco,
@@ -457,6 +463,7 @@ export const useFeed = defineStore('feed', {
           reputation: await repOf(eco.author),
           reaction: this.myReaction[eco.id] || null,
           keep: !!this.myReaction[eco.id],
+          opened: !!this.opened[eco.id],
           myTags: this.myTags,
           radiusMeters: this.radiusMeters
         }
