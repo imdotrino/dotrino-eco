@@ -120,3 +120,40 @@ export async function affinityOf (pk, interactions = 0, reactionNet = 0) {
   a += Math.max(-0.2, Math.min(0.2, reactionNet * 0.05))
   return Math.max(0, Math.min(1, a))
 }
+
+// --- sellado extremo a extremo (CONVENCIONES §4.1) ---------------------------
+//
+// El proxio NO cifra: lo que se manda con `sendByPubkey` lo puede leer quien lo opere.
+// Los eventos dirigidos (respuestas, re-ecos) llevan contenido del usuario y dicen
+// quién le responde a quién, así que van sellados.
+//
+// La privada de cifrado vive en el VAULT, no aquí: la app no la toca. Se delega en
+// `identity.encrypt`/`identity.decrypt`, el mismo E2E que usa el messenger.
+
+/** Mi pública de cifrado. Va en el beacon, firmada, para que puedan escribirme. */
+export async function getEncryptionPubkey () {
+  const id = await getIdentity()
+  return id ? id.getEncryptionPubkey() : null
+}
+
+export const sealing = {
+  async seal (msg, peerEncPub) {
+    if (!peerEncPub) {
+      const e = new Error('ese eco es de una versión anterior: no trae llave de cifrado')
+      e.code = 'unsealed'
+      throw e
+    }
+    const id = await getIdentity()
+    if (!id) throw Object.assign(new Error('sin vault'), { code: 'unsealed' })
+    const envelope = await id.encrypt([peerEncPub], JSON.stringify(msg))
+    return { app: 'eco', sealed: envelope, from: await getEncryptionPubkey() }
+  },
+  async open (sobre) {
+    const id = await getIdentity()
+    const texto = await id.decrypt(sobre.from, null, sobre.sealed)
+    return JSON.parse(texto)
+  },
+  isSealed (m) {
+    return !!m && m.app === 'eco' && !!m.sealed
+  },
+}

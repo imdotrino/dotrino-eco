@@ -4,7 +4,7 @@
 // del feed va por geo; esto es el canal punto-a-punto.
 
 import { getWebSocketProxyClient } from '@dotrino/proxy-client'
-import { getIdentity, getMyPubkey } from './identity'
+import { getIdentity, getMyPubkey, sealing } from './identity'
 
 let client = null
 let identified = false
@@ -12,7 +12,8 @@ const handlers = new Set()
 
 async function ensureConnected () {
   if (!client) {
-    client = getWebSocketProxyClient()
+    // `requireSealed`: nada en claro, ni al enviar ni al recibir (CONVENCIONES §4.1).
+    client = getWebSocketProxyClient({ requireSealed: true, sealing })
     // 'message' → (from, payload, meta); el pubkey del remitente va en meta.fromPubkey
     client.on?.('message', (from, payload, meta) => {
       const ev = { from, payload, fromPubkey: meta?.fromPubkey || null }
@@ -60,14 +61,20 @@ export async function connect () {
 
 /**
  * Envía un evento dirigido (reply / repost / mención) al autor original.
+ *
+ * Va SELLADO: el proxio no cifra (CONVENCIONES §4.1), y esto lleva contenido del
+ * usuario y dice quién le responde a quién. La pública de cifrado del destinatario
+ * viaja en su beacon, que ya va firmado.
+ *
  * @param {string|string[]} toPubkey
+ * @param {string} toEncPub  su pública de cifrado (`payload.encPub` del beacon)
  * @param {object} payload  { type:'eco-reply'|'eco-repost'|'eco-mention', eco, refId, ... }
  */
-export async function sendEcoEvent (toPubkey, payload) {
+export async function sendEcoEvent (toPubkey, toEncPub, payload) {
   const c = await ensureConnected()
-  await c.sendByPubkey(Array.isArray(toPubkey) ? toPubkey : [toPubkey], {
+  await c.sendSealed(Array.isArray(toPubkey) ? toPubkey : [toPubkey], {
     app: 'eco',
     ...payload,
     ts: Date.now()
-  })
+  }, { peerEncPub: toEncPub })
 }

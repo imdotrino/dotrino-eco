@@ -3,7 +3,7 @@
 // overwrite. Los lectores acumulan en su store local lo que ven vivo.
 
 import { createGeoClient } from '@dotrino/geo'
-import { signData, getPublicKeyJwk } from './identity'
+import { signData, getPublicKeyJwk, getEncryptionPubkey } from './identity'
 
 const TTL_24H = 24 * 60 * 60 * 1000
 
@@ -29,6 +29,13 @@ export async function publishEco (eco, lat, lng, ttlMs = TTL_24H) {
   // El payload se firma vía postMessage al vault (structured clone): aplanar a
   // objeto plano para no pasarle Proxies reactivos de Vue (DataCloneError).
   const payload = JSON.parse(JSON.stringify(eco))
+  // Mi llave de cifrado va en el beacon, que está firmado: es lo que permite que me
+  // respondan sin que el proxio lea la respuesta (CONVENCIONES §4.1). Es una clave
+  // PÚBLICA; no revela nada. Si el vault no está, el beacon sigue siendo válido.
+  try {
+    const encPub = await getEncryptionPubkey()
+    if (encPub) payload.encPub = encPub
+  } catch { /* sin llave: quien responda verá que no se puede sellar */ }
   return g.publishPin({
     lat,
     lng,

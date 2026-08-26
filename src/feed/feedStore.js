@@ -287,7 +287,7 @@ export const useFeed = defineStore('feed', {
         // aunque no lo descubra por geo (entrega directa al destinatario).
         if (target && target.author !== this.myPubkey) {
           const plainEco = JSON.parse(JSON.stringify(eco))
-          try { await sendEcoEvent(target.author, { type: context.mode === 'reply' ? 'eco-reply' : 'eco-repost', refId: target.id, eco: plainEco }) } catch (_) {}
+          try { await sendEcoEvent(target.author, target.encPub, { type: context.mode === 'reply' ? 'eco-reply' : 'eco-repost', refId: target.id, eco: plainEco }) } catch (_) {}
         }
         // ARCHIVAR en mi node, si el usuario lo pidió para ESTE eco. Va después de
         // publicar y nunca antes: que tu node esté apagado no puede impedir que
