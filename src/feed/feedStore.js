@@ -453,7 +453,7 @@ export const useFeed = defineStore('feed', {
         }
         await warmRep(seenAuthors)
         if (changed) await this.rebuild()
-      } catch (e) { console.warn('[feed] discover falló', e.message) }
+      } catch (e) { console.warn('[feed] discover failed', e.message) }
     },
 
     // --- Reconstruir el feed rankeado (capa 2) ---

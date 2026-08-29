@@ -14,7 +14,7 @@ export async function initIdentity () {
     identity = await Identity.connect()
     myPubkey = identity.me?.publickey || null
   } catch (e) {
-    console.warn('[identity] vault inalcanzable, modo standalone:', e.message)
+    console.warn('[identity] vault unreachable, standalone mode:', e.message)
     identity = null
   }
   return identity

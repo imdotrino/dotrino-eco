@@ -24,7 +24,7 @@ async function ensureConnected () {
   const token = await client.connect()
   const id = await getIdentity()
   const publickey = getMyPubkey()
-  if (!publickey) throw new Error('vault sin pubkey; no se puede identificar')
+  if (!publickey) throw new Error('vault has no pubkey; cannot identify')
   // Mismo sobre de identify que el messenger/trueque.
   const data = { op: 'identify', publickey, token, ts: Date.now() }
   const { signature } = await id.signData(data)
@@ -47,7 +47,7 @@ export async function enablePush () {
   const c = await ensureConnected()
   const id = await getIdentity()
   const publickey = getMyPubkey()
-  if (!publickey) throw new Error('vault sin pubkey')
+  if (!publickey) throw new Error('vault has no pubkey')
   await c.enablePush({ publicKey: publickey, sign: (d) => id.signData(d) })
   return true
 }
@@ -55,7 +55,7 @@ export async function enablePush () {
 /** Conecta e identifica de forma proactiva (para recibir aunque no publiques). */
 export async function connect () {
   try { await ensureConnected(); return true } catch (e) {
-    console.warn('[proxy] no se pudo identificar:', e.message); return false
+    console.warn('[proxy] could not identify:', e.message); return false
   }
 }
 
