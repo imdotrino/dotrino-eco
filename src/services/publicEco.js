@@ -45,6 +45,13 @@ export async function attachImage ({ cc, image, ttlMs = TTL_24H }) {
 /**
  * La copia PÚBLICA del eco (ya firmado) en el node: es lo que resuelve un enlace
  * `#owner/cid` en manos de otra persona. Misma vida que el beacon.
+ *
+ * El `meta` es lo ÚNICO que ve la tarjeta del permalink (`/p/<cid>`): la copia es
+ * JSON y el puerto público solo sirve imágenes, así que ahí no puede leer el eco. De
+ * ahí que vaya el texto entero —recortarlo a 200 dejaba tarjetas cortadas a mitad de
+ * frase, y un eco son 280 caracteres como mucho— y los `links`, que es donde está la
+ * fuente de la que habla. Y si el eco lleva imagen, se enlaza como MINIATURA: sin
+ * eso la tarjeta cae al og.jpg de la app y enseña el logo en vez del eco.
  * @returns {Promise<{ owner: string, cid: string }|null>} null sin node
  */
 export async function publishPublicCopy ({ cc, eco, ttlMs = TTL_24H }) {
@@ -55,8 +62,16 @@ export async function publishPublicCopy ({ cc, eco, ttlMs = TTL_24H }) {
     acl: 'public',
     mime: 'application/json',
     ttlMs,
-    meta: { title: eco.authorName ? `@${eco.authorName}` : 'eco', description: String(eco.text || '').slice(0, 200) }
+    meta: {
+      title: eco.authorName ? `@${eco.authorName}` : 'eco',
+      description: String(eco.text || ''),
+      links: Array.isArray(eco.links) ? eco.links : []
+    }
   })
+  const media = mediaOf(eco)
+  // Que no se pueda enlazar la miniatura no vale perder la copia: la tarjeta sale
+  // con la imagen de la app, que es lo que hacía siempre.
+  if (media) { try { await cc.setThumbnail(ref.cid, media.cid) } catch (_) {} }
   return { owner: ref.owner, cid: ref.cid }
 }
 

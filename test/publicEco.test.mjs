@@ -16,8 +16,10 @@ function fakeNode () {
   return {
     puts,
     pins,
+    thumbs: [],
     async put (bytes, opts) { puts.push({ bytes, opts }); return { owner: 'OWNER', cid: CID, size: bytes.length } },
-    async pin (cid) { pins.push(cid) }
+    async pin (cid) { pins.push(cid) },
+    async setThumbnail (cid, thumbnailCid) { this.thumbs.push({ cid, thumbnailCid }) }
   }
 }
 
@@ -49,6 +51,28 @@ test('la copia pública del eco va en claro, pública, con TTL y con su tarjeta'
   assert.deepEqual(JSON.parse(new TextDecoder().decode(bytes)), eco, 'los bytes son el eco tal cual (firmado)')
   assert.equal(opts.acl, 'public'); assert.equal(opts.encrypt, false); assert.equal(opts.ttlMs, TTL_24H)
   assert.equal(opts.meta.title, '@ana'); assert.equal(opts.meta.description, 'un eco con imagen')
+})
+
+test('la tarjeta lleva el texto ENTERO, los enlaces del eco y la imagen del eco', async () => {
+  const cc = fakeNode()
+  const text = 'a'.repeat(280)   // lo más largo que admite un eco
+  const eco = { id: 'e1', authorName: 'ana', text, links: ['https://medio.test/nota'], media: { owner: 'OWNER', cid: CID } }
+  await publishPublicCopy({ cc, eco })
+  const { opts } = cc.puts[0]
+  assert.equal(opts.meta.description, text, 'sin recortar: la tarjeta no corta a mitad de frase')
+  assert.deepEqual(opts.meta.links, ['https://medio.test/nota'], 'la fuente tiene que salir en la tarjeta')
+  // La copia es JSON: sin miniatura la tarjeta enseñaría el og.jpg de la app.
+  assert.deepEqual(cc.thumbs, [{ cid: CID, thumbnailCid: CID }])
+})
+
+test('sin imagen no se enlaza miniatura, y si enlazarla falla la copia sigue valiendo', async () => {
+  const cc = fakeNode()
+  await publishPublicCopy({ cc, eco: { id: 'e1', text: 'solo texto' } })
+  assert.deepEqual(cc.thumbs, [])
+
+  const roto = { ...fakeNode(), async setThumbnail () { throw new Error('op no soportada por un node viejo') } }
+  const ref = await publishPublicCopy({ cc: roto, eco: { id: 'e2', text: 'con imagen', media: { owner: 'OWNER', cid: CID } } })
+  assert.deepEqual(ref, { owner: 'OWNER', cid: CID })
 })
 
 test('un node que FALLA lanza (quien publica decide salir sin imagen, pero enterado)', async () => {
