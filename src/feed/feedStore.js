@@ -212,7 +212,7 @@ export const useFeed = defineStore('feed', {
     // context opcional: { mode:'reply'|'reeco', target } — reply crea un eco
     // HERMANO (replyTo) y re-eco crea un eco que CITA al original (repostOf+quoted).
     async publish ({ text, context = null, keep = null, image = null }) {
-      if (this.standalone || !this.pos) { this.geoError = 'necesitás vault y ubicación para publicar'; return null }
+      if (this.standalone || !this.pos) { this.geoError = 'necesitas bóveda y ubicación para publicar'; return null }
       this.busy = true
       try {
         const now = Date.now()
@@ -224,7 +224,7 @@ export const useFeed = defineStore('feed', {
         if (image) {
           const cc = await getContent()
           if (!cc) {
-            this.nodeError = 'no hay ningún node tuyo encendido: el eco sale sin la imagen'
+            this.nodeError = 'no tienes ninguna máquina tuya encendida: el eco sale sin la imagen'
           } else {
             try {
               media = await attachImage({ cc, image, ttlMs: TTL_24H })
