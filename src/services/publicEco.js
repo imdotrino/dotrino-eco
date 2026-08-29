@@ -30,7 +30,7 @@ export const IMAGE_MAX_BYTES = 200 * 1024
 export async function attachImage ({ cc, image, ttlMs = TTL_24H }) {
   if (!cc || !image?.bytes?.length) return null
   if (!/^image\/(jpeg|png|gif|webp|avif)$/.test(image.mime || '')) {
-    throw Object.assign(new Error('solo imágenes (JPEG, PNG, GIF, WebP o AVIF)'), { code: 'bad-image' })
+    throw Object.assign(new Error('images only (JPEG, PNG, GIF, WebP or AVIF)'), { code: 'bad-image' })
   }
   if (image.bytes.length > IMAGE_MAX_BYTES) {
     throw Object.assign(new Error(`la imagen pesa ${Math.round(image.bytes.length / 1024)} KB y el máximo es ${IMAGE_MAX_BYTES / 1024} KB`), { code: 'too-large' })

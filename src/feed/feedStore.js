@@ -300,7 +300,7 @@ export const useFeed = defineStore('feed', {
               const entry = await saveArchived({ ecoId: eco.id, cid: ref.cid, key: ref.key, owner: ref.owner })
               this.archived = [{ ...entry, ecoId: eco.id, cid: ref.cid, key: ref.key, owner: ref.owner }, ...this.archived]
             } else {
-              this.nodeError = 'no hay ningún node tuyo encendido: el eco se publicó, pero no se guardó'
+              this.nodeError = 'no tienes ninguna máquina tuya encendida: el eco se publicó, pero no se guardó'
             }
           } catch (e) {
             this.nodeError = `el eco se publicó, pero no se pudo guardar en tu máquina (${e.message})`

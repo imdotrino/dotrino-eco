@@ -14,7 +14,7 @@ const MAX_SIDE = 1280
  * @returns {Promise<{ bytes: Uint8Array, mime: string, width: number, height: number }>}
  */
 export async function shrinkImage (file, { maxSide = MAX_SIDE, maxBytes = IMAGE_MAX_BYTES } = {}) {
-  if (!/^image\//.test(file?.type || '')) throw Object.assign(new Error('no es una imagen'), { code: 'bad-image' })
+  if (!/^image\//.test(file?.type || '')) throw Object.assign(new Error('not an image'), { code: 'bad-image' })
   // Un GIF se deja tal cual si ya cabe: re-encodarlo perdería la animación.
   if (file.type === 'image/gif' && file.size <= maxBytes) {
     const bytes = new Uint8Array(await file.arrayBuffer())
