@@ -303,7 +303,7 @@ export const useFeed = defineStore('feed', {
               this.nodeError = 'no hay ningún node tuyo encendido: el eco se publicó, pero no se guardó'
             }
           } catch (e) {
-            this.nodeError = `el eco se publicó, pero no se pudo guardar en tu node (${e.message})`
+            this.nodeError = `el eco se publicó, pero no se pudo guardar en tu máquina (${e.message})`
           }
         }
         await this.rebuild()

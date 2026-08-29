@@ -70,7 +70,7 @@ const T = {
     clearN: 'Limpiar',
     you: 'tú', install: 'Instalar',
     repostOf: 're-eco de', expires: 'expira en', empty: 'Todavía no hay ecos en tu zona. Publica el primero o amplía el alcance.',
-    standalone: 'Vault no disponible: modo archivo local (solo lectura).',
+    standalone: 'No se pudo abrir tu bóveda: estás viendo tu archivo local, solo lectura.',
     needLoc: 'Activa la ubicación para publicar y descubrir ecos.',
     locating: 'Obteniendo tu ubicación…', retryLoc: 'Activar ubicación',
     nickTitle: 'Elige tu nombre', nickIntro: 'Tus ecos y acciones se firman con este nombre. Hace falta para participar.',
