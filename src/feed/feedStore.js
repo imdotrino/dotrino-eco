@@ -257,9 +257,16 @@ export const useFeed = defineStore('feed', {
             text: target.text, links: target.links || [], tags: target.tags || [], createdAt: target.createdAt
           }
         }
-        // `signData` devuelve el PAQUETE (firma + quién firmó + cadena); aquí solo se
-        // guarda la firma dentro del eco, que es lo que se verifica contra su autor.
-        eco.sig = (await signData(canonical(eco)))?.signature || null
+        // QUIÉN FIRMÓ, junto a la firma. `author` es la IDENTIDAD (el `profileId`) y la
+        // firma la hace el APARATO, así que sin decir cuál la firma es inverificable —
+        // quien la mire probaría contra `author` y no cuadraría nunca.
+        //
+        // La cadena NO se guarda aquí a propósito: es la misma para todos tus ecos y
+        // pesa más que el eco. Quien verifique la pide una vez por identidad (ahí entra
+        // `chainUrl` del génesis) y la cachea.
+        const firma = await signData(canonical(eco))
+        eco.sig = firma?.signature || null
+        if (firma?.publickey) eco.signer = firma.publickey
         // La COPIA PÚBLICA en mi node (si lo hay): es lo que abre mi enlace en manos de
         // otro, con la vida del beacon. Va ANTES del beacon para que el beacon lleve la
         // referencia (`pub`, fuera de lo firmado: el cid es el hash del eco ya firmado) y
