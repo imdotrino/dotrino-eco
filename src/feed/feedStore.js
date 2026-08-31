@@ -257,7 +257,9 @@ export const useFeed = defineStore('feed', {
             text: target.text, links: target.links || [], tags: target.tags || [], createdAt: target.createdAt
           }
         }
-        eco.sig = (await signData(canonical(eco))) || null
+        // `signData` devuelve el PAQUETE (firma + quién firmó + cadena); aquí solo se
+        // guarda la firma dentro del eco, que es lo que se verifica contra su autor.
+        eco.sig = (await signData(canonical(eco)))?.signature || null
         // La COPIA PÚBLICA en mi node (si lo hay): es lo que abre mi enlace en manos de
         // otro, con la vida del beacon. Va ANTES del beacon para que el beacon lleve la
         // referencia (`pub`, fuera de lo firmado: el cid es el hash del eco ya firmado) y

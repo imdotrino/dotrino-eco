@@ -12,7 +12,14 @@ export async function initIdentity () {
   if (identity) return identity
   try {
     identity = await Identity.connect()
-    myPubkey = identity.me?.publickey || null
+    // MI IDENTIDAD ES EL `profileId`, no la llave de ESTE aparato.
+    //
+    // `me.publickey` es la llave del aparato, y solo coincide con la cuenta en el que la
+    // fundó. Usarla como identidad hacía que publicar desde el teléfono y desde el PC
+    // quedara a nombre de dos personas distintas: dos autores en el mapa, y la
+    // reputación repartida entre ellos en vez de acumularse. Sin error, en silencio.
+    myPubkey = (await identity.profileActa().catch(() => null))?.acta?.profileId
+      || identity.me?.publickey || null
   } catch (e) {
     console.warn('[identity] vault unreachable, standalone mode:', e.message)
     identity = null
@@ -58,13 +65,14 @@ export async function nameOf (pk) {
 }
 
 // --- adaptadores para createGeoClient ---
-// El geo-client arma `data` y la firma entera; el vault devuelve
-// { signature, publickey } — tomamos sólo la firma.
+// El geo-client arma `data` y pide la firma. El vault devuelve el PAQUETE
+// —{ signature, publickey, profileId, chain }— y hay que pasarlo ENTERO: sin
+// `chain` el servidor no puede comprobar que este aparato habla por esta
+// identidad, y con la verificación nueva rechaza el sobre.
 export async function signData (data) {
   const id = await getIdentity()
   if (!id) return null
-  const res = await id.signData(data)
-  return res.signature
+  return id.signData(data)
 }
 
 export async function getPublicKeyJwk () {
