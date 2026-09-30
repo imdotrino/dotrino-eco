@@ -4,6 +4,7 @@
 // No montamos backend propio: usamos el paquete del ecosistema.
 
 import { Store } from '@dotrino/store'
+import { getIdentity } from './identity.js'
 
 const MINE = 'eco:mine'
 const INBOX = 'eco:inbox'
@@ -20,7 +21,13 @@ const authorKey = (pk) => 'eco:' + pk
 let store = null
 
 export async function getStore () {
-  if (!store) store = await Store.connect()
+  if (store) return store
+  // Atado al PERFIL (respaldo en la bóveda, sin mezclar cuentas). Hasta 2026-09-30 conectaba
+  // sin identidad y todo quedaba en el espacio común del navegador; `adoptCommon` lo trae al
+  // perfil una vez, sin borrar el original.
+  const identity = await getIdentity()
+  if (!identity) throw Object.assign(new Error('identity not available'), { code: 'no-identity' })
+  store = await Store.connect({ identity, adoptCommon: ['eco:'] })
   return store
 }
 
