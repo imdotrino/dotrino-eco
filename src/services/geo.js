@@ -4,8 +4,7 @@
 
 import { createGeoClient } from '@dotrino/geo'
 import { signData, getPublicKeyJwk, getEncryptionPubkey } from './identity'
-
-const TTL_24H = 24 * 60 * 60 * 1000
+import { TTL_24H } from '../feed/constants.js'
 
 let geo = null
 
