@@ -287,23 +287,6 @@ function bindProfile (el) {
   if (!el) return
   ensureProfileProvider().then((p) => { if (p) el.provider = p })
 }
-const profileTheme = {
-  '--ccp-bg': 'var(--card)',
-  '--ccp-bg-2': 'var(--bg2)',
-  '--ccp-bg-3': 'var(--bg2)',
-  '--ccp-bg-4': 'var(--line)',
-  '--ccp-border': 'var(--line)',
-  '--ccp-text': 'var(--text)',
-  '--ccp-muted': 'var(--muted)',
-  '--ccp-accent': 'var(--teal)',
-  '--ccp-accent-2': 'var(--teal2)',
-  '--ccp-derived': 'var(--teal2)',
-  '--ccp-online': 'var(--teal2)',
-  '--ccp-affinity': 'var(--teal2)',
-  '--ccp-gold': '#d4a72c',
-  '--ccp-input-bg': 'var(--bg)',
-  '--ccp-radius': '12px',
-}
 
 // "Mi perfil" (§6.1) lo abre el propio <dotrino-topbar>: es el dueño del modal.
 // Le pasamos los pilares que la app ya maneja (identidad + reputación) y el tema
@@ -316,7 +299,6 @@ watchEffect(() => {
   if (!tb) return
   tb.identity = identityInst.value ?? null
   tb.reputation = reputationInst.value ?? null
-  tb.profileTheme = profileTheme
 })
 
 // El estado del respaldo en la bóveda, a la vista en el botón de perfil (topbar ≥ 0.13).
@@ -357,8 +339,8 @@ const bindNotif = (el) => { if (el) el.controller = getNotifications() }
 const ccnTheme = {
   '--ccn-bg': 'var(--card)', '--ccn-bg-2': 'var(--bg2)', '--ccn-bg-3': 'var(--bg2)',
   '--ccn-bg-4': 'var(--line)', '--ccn-border': 'var(--line)', '--ccn-text': 'var(--text)',
-  '--ccn-muted': 'var(--muted)', '--ccn-accent': 'var(--teal)', '--ccn-accent-text': '#04211f',
-  '--ccn-radius': '12px', 'margin-bottom': '10px', display: 'block',
+  '--ccn-muted': 'var(--muted)', '--ccn-accent': 'var(--teal)', '--ccn-accent-text': 'var(--dt-accent-ink)',
+  '--ccn-radius': 'var(--dt-radius)', 'margin-bottom': '10px', display: 'block',
 }
 function openThreadById (id) {
   const e = feed.allEcos.find((x) => x.id === id)
@@ -427,7 +409,7 @@ function ttlText (eco) {
     ref="topbarRef"
     brand-href="./"
     :lang.attr="lang"
-    profile
+    profile theme
     support-href="https://ko-fi.com/dotrino"
     support-repo="imdotrino/dotrino-eco"
     support-discord="https://discord.gg/D648uq7cth"
@@ -622,7 +604,6 @@ function ttlText (eco) {
       <dotrino-profile
         v-else
         :ref="bindProfile"
-        :style="profileTheme"
         mode="edit"
         :lang="lang"
         :pubkey="profile.pk"

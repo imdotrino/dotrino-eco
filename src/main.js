@@ -5,6 +5,7 @@ import App from './App.vue'
 import '@dotrino/profile'
 import '@dotrino/install'
 import { createBackNav } from '@dotrino/nav'
+import '@dotrino/theme/theme.css'
 import './style.css'
 
 // Navegación "volver" unificada del ecosistema: el botón físico de Android / el
