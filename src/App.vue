@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, watchEffect } from 'vue'
 import { useFeed } from './feed/feedStore'
+import { isAlive } from './feed/ranking'
 import { createVaultProfileProvider } from '@dotrino/profile'
 import '@dotrino/topbar'
 import '@dotrino/notifications'
@@ -394,7 +395,7 @@ async function copyShare (eco) {
     shareCopied.value = true; setTimeout(() => { shareCopied.value = false }, 1600)
   } catch (_) {}
 }
-function isExpired (eco) { return (eco.expiresAt || (eco.createdAt + 86400000)) <= now.value }
+function isExpired (eco) { return !isAlive(eco, now.value) }
 // Fecha y hora del post (en vez de "expira en 23h").
 function fmtDate (eco) {
   const d = new Date(eco.createdAt || Date.now())

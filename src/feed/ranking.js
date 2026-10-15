@@ -2,7 +2,8 @@
 // score = wR·recencia + wA·afinidad + wRep·reputación + wT·tags + wG·geo
 // Cada término normalizado 0..1. Ver DESIGN.md §3.
 
-const TTL_MS = 24 * 60 * 60 * 1000
+import { TTL_24H } from './constants.js'
+
 const TAU_MS = 8 * 60 * 60 * 1000 // vida media del decay de recencia (~8h)
 
 // Pesos por preset. "balanced" es el default del diseño.
@@ -40,7 +41,7 @@ function geoScore (distanceMeters, radiusMeters) {
 
 /** ¿Sigue vivo en la red? (para filtrar; el archivo local igual lo guarda) */
 export function isAlive (eco, now) {
-  const exp = eco.expiresAt || ((eco.createdAt || 0) + TTL_MS)
+  const exp = eco.expiresAt || ((eco.createdAt || 0) + TTL_24H)
   return exp > now
 }
 
