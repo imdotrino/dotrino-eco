@@ -13,7 +13,7 @@
   "dependencies": {
     "@dotrino/content-client": "0.2.4",
     "@dotrino/geo": "0.9.0",
-    "@dotrino/identity": "0.114.1",
+    "@dotrino/identity": "0.116.0",
     "@dotrino/install": "0.3.3",
     "@dotrino/nav": "0.3.0",
     "@dotrino/notifications": "0.6.0",
