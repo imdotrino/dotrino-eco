@@ -39,10 +39,14 @@ function geoScore (distanceMeters, radiusMeters) {
   return Math.max(0, 1 - distanceMeters / radiusMeters)
 }
 
+/** Cuándo deja de estar vivo un eco: su `expiresAt`, o 24 h desde que se creó. */
+export function expiresAtOf (eco) {
+  return eco.expiresAt || ((eco.createdAt || 0) + TTL_24H)
+}
+
 /** ¿Sigue vivo en la red? (para filtrar; el archivo local igual lo guarda) */
 export function isAlive (eco, now) {
-  const exp = eco.expiresAt || ((eco.createdAt || 0) + TTL_24H)
-  return exp > now
+  return expiresAtOf(eco) > now
 }
 
 /**

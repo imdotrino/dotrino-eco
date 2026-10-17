@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, watchEffect } from 'vue'
 import { useFeed } from './feed/feedStore'
-import { isAlive } from './feed/ranking'
+import { isAlive, expiresAtOf } from './feed/ranking'
 import { createVaultProfileProvider } from '@dotrino/profile'
 import '@dotrino/topbar'
 import '@dotrino/notifications'
@@ -392,7 +392,7 @@ function displayName (author, myLabel, self) {
   return myLabel || self || shortPk(author)
 }
 function ttlText (eco) {
-  const exp = eco.expiresAt || (eco.createdAt + 86400000)
+  const exp = expiresAtOf(eco)
   const ms = exp - now.value
   if (ms <= 0) return '·'
   const h = Math.floor(ms / 3600000)
