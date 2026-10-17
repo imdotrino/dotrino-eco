@@ -24,18 +24,6 @@ let client = null
 let tried = false
 let lastError = null
 
-/** El enlace de este dispositivo a su bóveda, como lo arma el resto del ecosistema. */
-async function vaultLink () {
-  const id = await getIdentity()
-  if (!id) return null
-  const status = await id.vaultStatus().catch(() => ({ paired: false }))
-  if (!status?.paired) return null
-  if (status.exp && status.exp <= Date.now()) return null   // cert vencido = no autorizado
-  const v = await id.getVaultCert().catch(() => null)
-  if (!v?.cert) return null
-  return { id, cert: v.cert, iss: status.master, proxy: status.proxy || 'wss://proxy.dotrino.com' }
-}
-
 /**
  * Conecta con un node del usuario. Devuelve null si no hay ninguno — que es lo
  * normal y no es un error: la mayoría de la gente no tiene uno, y Eco funciona
@@ -47,13 +35,11 @@ export async function getContent () {
   if (tried) return null
   tried = true
   try {
-    const link = await vaultLink()
-    if (!link) { lastError = 'sin bóveda enlazada'; return null }
-    client = await ContentClient.connect({ link })
+    client = await ContentClient.connectWithIdentity(await getIdentity())
     lastError = null
     return client
   } catch (e) {
-    lastError = e?.code === 'no-node' ? 'no-node' : (e?.message || 'no se pudo conectar')
+    lastError = e?.code === 'no-node' || e?.code === 'no-vault' ? e.code : (e?.message || 'could not connect')
     return null
   }
 }
