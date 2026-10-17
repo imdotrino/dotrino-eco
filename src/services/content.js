@@ -17,43 +17,20 @@
 // Si no hay node encendido, esto NO rompe nada: Eco sigue funcionando igual. Es la
 // regla del ecosistema — ninguna app puede exigir un daemon encendido.
 
-import { ContentClient, buildUrl, parseRef } from '@dotrino/content-client'
+import { buildUrl, parseRef } from '@dotrino/content-client'
+import { nodeSession } from '@dotrino/content-client/session'
 import { getIdentity } from './identity'
 
-let client = null
-let tried = false
-let lastError = null
+// El node de esta sesión (content-client/session): se intenta una vez; sin node, Eco sigue.
+const session = nodeSession(getIdentity)
 
-/**
- * Conecta con un node del usuario. Devuelve null si no hay ninguno — que es lo
- * normal y no es un error: la mayoría de la gente no tiene uno, y Eco funciona
- * igual. Se intenta UNA vez por sesión para no castigar cada publicación con una
- * espera; `retry()` fuerza otro intento cuando el usuario acaba de encender uno.
- */
-export async function getContent () {
-  if (client) return client
-  if (tried) return null
-  tried = true
-  try {
-    client = await ContentClient.connectWithIdentity(await getIdentity())
-    lastError = null
-    return client
-  } catch (e) {
-    lastError = e?.code === 'no-node' || e?.code === 'no-vault' ? e.code : (e?.message || 'could not connect')
-    return null
-  }
-}
-
+/** El node del usuario, o null si no tiene ninguno — que es lo normal y no es un error. */
+export const getContent = () => session.node()
 /** Vuelve a intentarlo (el usuario acaba de encender su node). */
-export async function retry () {
-  tried = false
-  client = null
-  return getContent()
-}
-
+export const retry = () => session.retry()
 /** ¿Hay node? Sin efectos: para pintar el interruptor sin provocar una conexión. */
-export const hasNode = () => !!client
-export const contentError = () => lastError
+export const hasNode = () => session.hasNode()
+export const contentError = () => session.lastError()
 
 /**
  * Guarda un eco en el node de su autor y devuelve el puntero que va al store.
