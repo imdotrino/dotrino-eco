@@ -24,6 +24,13 @@ import { attachImage, publishPublicCopy, pinPublic, mediaOf } from '../services/
 import { getClient as getProxyClient } from '../services/proxy'
 import { setLocalMedia } from '../services/media-app'
 import { fetchPublic } from '@dotrino/content-client/public'
+/** @import { Eco, FeedItem, ArchivedPtr, PublicRef, InboxItem, Notif, ProxyEvent, ImageInput, Media } from '../types.js' */
+/** @import { Pin } from '@dotrino/geo' */
+
+/**
+ * Lo que trae el composer al publicar.
+ * @typedef {{ mode: 'reply' | 'reeco', target: Eco | null | undefined }} PublishContext
+ */
 
 const POLL_MS = 60_000
 const RADII = [5000, 20000, 100000, 0] // 5km, 20km, 100km, global(0)
@@ -32,26 +39,26 @@ export const useFeed = defineStore('feed', {
   state: () => ({
     ready: false,
     standalone: false,        // vault inalcanzable: modo solo-lectura local
-    myPubkey: null,
-    myName: null,             // nick del vault (espejo reactivo)
-    pos: null,                // { lat, lng }
-    geoError: null,
+    myPubkey: /** @type {string | null} */ (null),
+    myName: /** @type {string | null} */ (null),             // nick del vault (espejo reactivo)
+    pos: /** @type {{ lat: number, lng: number } | null} */ (null),
+    geoError: /** @type {string | null} */ (null),
     radiusMeters: 0,          // global por defecto
     preset: 'balanced',
-    myTags: [],               // intereses para tags/discover
-    posts: new Map(),         // id → eco (cache en memoria)
-    feed: [],                 // [{ eco, ctx, score }]
-    inbox: [],
+    myTags: /** @type {string[]} */ ([]),               // intereses para tags/discover
+    posts: /** @type {Map<string, Eco>} */ (new Map()),         // id → eco (cache en memoria)
+    feed: /** @type {FeedItem[]} */ ([]),
+    inbox: /** @type {InboxItem[]} */ ([]),
     // Ecos abiertos por ENLACE en esta sesión. Un enlace se comparte precisamente para que
     // siga abriendo cuando el eco ya murió en la red —por eso su copia pública va pineada—,
     // así que el filtro de vivos no puede tragárselo: quien llega por el enlace vería la
     // app como si no hubiera pasado nada.
-    opened: {},
+    opened: /** @type {Record<string, boolean>} */ ({}),
     // Qué eco de los míos está AHORA en mi beacon. Geo guarda UN pin por identidad
     // (`ON CONFLICT (pubkey_id) DO UPDATE`, y es una decisión de privacidad: varios pins
     // por persona serían un rastro de por dónde anduvo), así que publicar cualquier otro
     // PISA este. Sin saber cuál es, rehidratar un eco viejo borraba el de hoy.
-    myPinId: null,
+    myPinId: /** @type {string | null} */ (null),
     // --- archivo en el node propio (opt-in por eco, DISENO §3.2 de content) ---
     // Eco es efímero: el beacon dura 24 h y lo demás es tu copia local. Guardar un
     // eco en tu node añade TU propia copia, y por eso se pide eco a eco en vez de
@@ -60,24 +67,24 @@ export const useFeed = defineStore('feed', {
     hasNode: false,           // ¿hay un content node mío en línea?
     nodeChecked: false,       // ya se miró (para no pintar el interruptor a ciegas)
     keepNext: false,          // el interruptor del composer, para el PRÓXIMO eco
-    archived: [],             // punteros { ecoId, cid, key, owner } desde el store
+    archived: /** @type {ArchivedPtr[]} */ ([]),             // punteros { ecoId, cid, key, owner } desde el store
     // --- lo PÚBLICO en el node (copia en claro + imagen, con la vida del beacon) ---
     // Es lo que hace que un enlace mío se abra en manos de otro y que mis imágenes se
     // vean: el índice vive en el store, los bytes en el node. Sin node no existe y
     // el eco sale solo con texto, como siempre.
-    publicRefs: [],           // punteros { ecoId, cid, owner, mediaCid, expiresAt }
-    nodeError: null,          // lo último que falló al guardar, para decirlo
-    interactions: new Map(),  // authorPk → nº interacciones (afinidad)
-    reactions: {},            // authorPk → net likes(+1)/dislikes(-1) (persistente)
-    myReaction: {},           // ecoId → 'like' | 'dislike' (persistente, para el highlight)
-    muted: {},                // authorPk → true (mute personal persistente)
-    notifications: [],        // respuestas/re-ecos a MIS ecos (persistente)
+    publicRefs: /** @type {PublicRef[]} */ ([]),           // punteros { ecoId, cid, owner, mediaCid, expiresAt }
+    nodeError: /** @type {string | null} */ (null),          // lo último que falló al guardar, para decirlo
+    interactions: /** @type {Map<string, number>} */ (new Map()),  // authorPk → nº interacciones (afinidad)
+    reactions: /** @type {Record<string, number>} */ ({}),            // authorPk → net likes(+1)/dislikes(-1) (persistente)
+    myReaction: /** @type {Record<string, 'like' | 'dislike'>} */ ({}),           // ecoId → 'like' | 'dislike' (persistente, para el highlight)
+    muted: /** @type {Record<string, boolean>} */ ({}),                // authorPk → true (mute personal persistente)
+    notifications: /** @type {Notif[]} */ ([]),        // respuestas/re-ecos a MIS ecos (persistente)
     busy: false,
     locating: false,
-    _poll: null,
-    _ownerId: null,           // mi ownerId en el content (huella de la maestra), cacheado
-    _off: null,
-    _watch: null
+    _poll: /** @type {ReturnType<typeof setInterval> | null} */ (null),
+    _ownerId: /** @type {string | null} */ (null),           // mi ownerId en el content (huella de la maestra), cacheado
+    _off: /** @type {(() => void) | null} */ (null),
+    _watch: /** @type {number | null} */ (null)
   }),
 
   getters: {
@@ -126,6 +133,7 @@ export const useFeed = defineStore('feed', {
     locate () {
       if (!('geolocation' in navigator)) { this.geoError = 'sin geolocalización en este navegador'; return }
       this.locating = true
+      /** @param {GeolocationPosition} p */
       const onPos = (p) => {
         const first = !this.pos
         this.pos = { lat: p.coords.latitude, lng: p.coords.longitude }
@@ -134,6 +142,7 @@ export const useFeed = defineStore('feed', {
         if (first) this.startPolling()   // dispara discoverNow dentro
         else this.discoverNow()
       }
+      /** @param {GeolocationPositionError} e */
       const onErr = (e) => {
         this.locating = false
         if (!this.pos) this.geoError = e.code === 1 ? 'permiso de ubicación denegado' : (e.message || 'ubicación no disponible')
@@ -145,28 +154,34 @@ export const useFeed = defineStore('feed', {
       }
     },
 
+    /** @param {string} name */
     async setMyName (name) {
       const ok = await setMyName(name)
       if (ok) { this.myName = getMyName(); await this.rebuild() }
       return ok
     },
 
+    /** @param {number} m */
     setRadius (m) { this.radiusMeters = m; this._savePrefs(); this.discoverNow() },
+    /** @param {string} p */
     setPreset (p) { this.preset = p; this._savePrefs(); this.rebuild() },
 
     // --- Intereses (temas que suben en tu orden) ---
     // Se aprenden solos (al publicar/repostear/responder) y se gestionan en el
     // panel aparte. El buscador también los genera. Cap 40, más recientes primero.
+    /** @param {string} tag */
     addInterest (tag) {
       const t = String(tag || '').trim().toLowerCase().replace(/^#/, '')
       if (!t) return
       this.myTags = [t, ...this.myTags.filter((x) => x !== t)].slice(0, 40)
       this._savePrefs(); this.rebuild()
     },
+    /** @param {string} tag */
     removeInterest (tag) {
       this.myTags = this.myTags.filter((x) => x !== tag)
       this._savePrefs(); this.rebuild()
     },
+    /** @param {string[] | null | undefined} tags */
     _learn (tags) {
       if (!tags || !tags.length) return
       const norm = tags.map((t) => String(t).trim().toLowerCase().replace(/^#/, '')).filter(Boolean)
@@ -180,7 +195,7 @@ export const useFeed = defineStore('feed', {
       try {
         const p = JSON.parse(localStorage.getItem('eco:prefs') || '{}')
         if (RADII.includes(p.radius)) this.radiusMeters = p.radius
-        if (PRESETS[p.preset]) this.preset = p.preset
+        if (/** @type {Record<string, unknown>} */ (PRESETS)[p.preset]) this.preset = p.preset
         if (Array.isArray(p.tags)) this.myTags = p.tags
         if (p.reactions && typeof p.reactions === 'object') this.reactions = p.reactions
         if (p.myReaction && typeof p.myReaction === 'object') this.myReaction = p.myReaction
@@ -211,8 +226,13 @@ export const useFeed = defineStore('feed', {
     // Solo se introduce texto (enlaces y tags se extraen del propio texto).
     // context opcional: { mode:'reply'|'reeco', target } — reply crea un eco
     // HERMANO (replyTo) y re-eco crea un eco que CITA al original (repostOf+quoted).
+    /**
+     * @param {{ text: string, context?: PublishContext | null, keep?: boolean | null, image?: ImageInput | null }} args
+     * @returns {Promise<Eco | null>}
+     */
     async publish ({ text, context = null, keep = null, image = null }) {
-      if (this.standalone || !this.pos) { this.geoError = 'necesitas bóveda y ubicación para publicar'; return null }
+      // Sin `myPubkey` ya es `standalone`; va explícito para que el tipo lo sepa.
+      if (this.standalone || !this.pos || !this.myPubkey) { this.geoError = 'necesitas bóveda y ubicación para publicar'; return null }
       this.busy = true
       try {
         const now = Date.now()
@@ -220,6 +240,7 @@ export const useFeed = defineStore('feed', {
         // La IMAGEN va al node ANTES de firmar: su `cid` forma parte de lo firmado.
         // Sin node no hay imagen y se dice; si el node falla, el eco sale sin ella y
         // también se dice — nunca se deja de publicar por la imagen.
+        /** @type {Media | null} */
         let media = null
         if (image) {
           const cc = await getContent()
@@ -230,10 +251,11 @@ export const useFeed = defineStore('feed', {
               media = await attachImage({ cc, image, ttlMs: TTL_24H })
               if (media) setLocalMedia(media.cid, image.bytes, media.mime)
             } catch (e) {
-              this.nodeError = `no se pudo subir la imagen (${e.message}): el eco sale sin ella`
+              this.nodeError = `no se pudo subir la imagen (${errMsg(e)}): el eco sale sin ella`
             }
           }
         }
+        /** @type {Eco} */
         const eco = {
           id: uuidv4(),
           author: this.myPubkey,
@@ -282,7 +304,7 @@ export const useFeed = defineStore('feed', {
             if (keep ?? this.keepNext) await pinPublic({ cc, eco, ref })
           }
         } catch (e) {
-          this.nodeError = `el eco sale, pero sin copia pública (${e.message})`
+          this.nodeError = `el eco sale, pero sin copia pública (${errMsg(e)})`
         }
         await saveMine(eco)
         this.posts.set(eco.id, eco)
@@ -296,7 +318,7 @@ export const useFeed = defineStore('feed', {
         // aunque no lo descubra por geo (entrega directa al destinatario).
         if (target && target.author !== this.myPubkey) {
           const plainEco = JSON.parse(JSON.stringify(eco))
-          try { await sendEcoEvent(target.author, target.encPub, { type: context.mode === 'reply' ? 'eco-reply' : 'eco-repost', refId: target.id, eco: plainEco }) } catch (_) {}
+          try { await sendEcoEvent(target.author, target.encPub, { type: context?.mode === 'reply' ? 'eco-reply' : 'eco-repost', refId: target.id, eco: plainEco }) } catch (_) {}
         }
         // ARCHIVAR en mi node, si el usuario lo pidió para ESTE eco. Va después de
         // publicar y nunca antes: que tu node esté apagado no puede impedir que
@@ -312,7 +334,7 @@ export const useFeed = defineStore('feed', {
               this.nodeError = 'no tienes ninguna máquina tuya encendida: el eco se publicó, pero no se guardó'
             }
           } catch (e) {
-            this.nodeError = `el eco se publicó, pero no se pudo guardar en tu máquina (${e.message})`
+            this.nodeError = `el eco se publicó, pero no se pudo guardar en tu máquina (${errMsg(e)})`
           }
         }
         await this.rebuild()
@@ -340,9 +362,14 @@ export const useFeed = defineStore('feed', {
     },
 
     /** El interruptor del composer: se decide eco a eco y no se recuerda. */
+    /** @param {boolean} on */
     setKeepNext (on) { this.keepNext = !!on },
 
-    /** Guardar en mi node un eco YA publicado (me arrepentí al revés). */
+    /**
+     * Guardar en mi node un eco YA publicado (me arrepentí al revés).
+     * @param {Eco | null | undefined} eco
+     * @returns {Promise<boolean>}
+     */
     async keepEco (eco) {
       if (!eco || eco.author !== this.myPubkey) return false
       if (this.archivedById[eco.id]) return true
@@ -353,7 +380,7 @@ export const useFeed = defineStore('feed', {
         this.archived = [{ ...entry, ecoId: eco.id, cid: ref.cid, key: ref.key, owner: ref.owner }, ...this.archived]
         return true
       } catch (e) {
-        this.nodeError = e.message
+        this.nodeError = errMsg(e)
         return false
       }
     },
@@ -362,12 +389,16 @@ export const useFeed = defineStore('feed', {
      * Dejar de guardarlo: borra los bytes del node Y el puntero del store. Las dos
      * cosas, porque un puntero a algo que ya no está es una promesa rota, y unos
      * bytes sin puntero son basura que ocupa cuota.
+     * @param {string} ecoId
+     * @returns {Promise<boolean>}
      */
     async unkeepEco (ecoId) {
       const ptr = this.archivedById[ecoId]
       if (!ptr) return false
       try { await forgetEco(ptr.cid) } catch (_) { /* si el node no está, al menos suelto el puntero */ }
-      await removeArchived(ptr.id)
+      // Un puntero sin `id` no lo escribió el store: no hay entrada que quitar (antes se
+      // pedía quitar `undefined` y fallaba en silencio).
+      if (ptr.id) await removeArchived(ptr.id)
       this.archived = this.archived.filter((a) => a.ecoId !== ecoId)
       return true
     },
@@ -380,6 +411,8 @@ export const useFeed = defineStore('feed', {
      * puede abrir aquí — llegará con el transporte entre aparatos. Devuelve null
      * sin ruido en todos los demás casos, porque el fragmento se usa para muchas
      * cosas y la mayoría no son referencias.
+     * @param {string} [fragment]
+     * @returns {Promise<Eco | null>}
      */
     async openRef (fragment) {
       const r = parseRef(fragment ?? location.hash)
@@ -388,6 +421,7 @@ export const useFeed = defineStore('feed', {
         // Con llave es una copia CIFRADA: solo la abre un aparato de su dueño (la mía).
         // Sin llave es una copia PÚBLICA: se le pide al node del dueño por la red,
         // sea quien sea — si está encendido. Lo mío se intenta primero en mi node.
+        /** @type {Eco | null} */
         let eco = null
         if (r.key || (this.myPubkey && r.owner === (await this.myOwnerId()))) {
           eco = await readEco(r).catch((e) => { if (r.key) throw e; return null })
@@ -399,14 +433,17 @@ export const useFeed = defineStore('feed', {
         await this.rebuild()
         return eco
       } catch (e) {
-        this.nodeError = e?.code === 'no-node'
+        this.nodeError = /** @type {{ code?: string } | null} */ (e)?.code === 'no-node'
           ? 'la máquina de esa persona no está encendida ahora mismo: inténtalo más tarde'
-          : `no se pudo abrir ese enlace (${e.message})`
+          : `no se pudo abrir ese enlace (${errMsg(e)})`
         return null
       }
     },
 
-    /** Mi `ownerId` (la huella de mi maestra), tal como lo usa el content. */
+    /**
+     * Mi `ownerId` (la huella de mi maestra), tal como lo usa el content.
+     * @returns {Promise<string | null>}
+     */
     async myOwnerId () {
       if (this._ownerId) return this._ownerId
       const cc = await getContent()
@@ -418,6 +455,7 @@ export const useFeed = defineStore('feed', {
      * Leer la copia pública de un eco por la red de Dotrino: el node del dueño
      * contesta solo lo marcado público, y los bytes vuelven verificados por el cid.
      * @param {{ owner: string, cid: string }} r
+     * @returns {Promise<Eco>}
      */
     async readPublic (r) {
       const client = await getProxyClient()
@@ -431,12 +469,18 @@ export const useFeed = defineStore('feed', {
       return eco
     },
 
-    /** El enlace compartible de un eco archivado (la referencia va en el #fragment). */
+    /**
+     * El enlace compartible de un eco archivado (la referencia va en el #fragment).
+     * @param {string} ecoId
+     * @returns {string | null}
+     */
     linkFor (ecoId) {
       // La copia cifrada (guardada) tiene prioridad: dura. Si no, la pública mientras viva.
       // Y para un eco AJENO, la referencia que su autor puso en el beacon (`pub`).
       const ptr = this.archivedById[ecoId] || this.publicById[ecoId] || this.posts.get(ecoId)?.pub
-      return ptr?.cid && ptr?.owner ? buildUrl(ptr, location.origin + location.pathname) : null
+      if (!ptr?.cid || !ptr?.owner) return null
+      // Solo la copia guardada lleva llave; las otras dos no (`buildUrl` la toma por null).
+      return buildUrl({ owner: ptr.owner, cid: ptr.cid, key: 'key' in ptr ? ptr.key : null }, location.origin + location.pathname)
     },
 
     // --- Descubrir (poll geo) ---
@@ -462,7 +506,7 @@ export const useFeed = defineStore('feed', {
         }
         await warmRep(seenAuthors)
         if (changed) await this.rebuild()
-      } catch (e) { console.warn('[feed] discover failed', e.message) }
+      } catch (e) { console.warn('[feed] discover failed', errMsg(e)) }
     },
 
     // --- Reconstruir el feed rankeado (capa 2) ---
@@ -470,6 +514,7 @@ export const useFeed = defineStore('feed', {
       const now = Date.now()
       // Un eco al que diste 👍 se conserva aunque haya expirado. El 👎 no: baja la
       // afinidad y lo deja morir a su hora (fijarlo era justo lo contrario de lo pedido).
+      /** @param {Eco} e */
       const kept = (e) => survives(e, { now, liked: this.myReaction[e.id] === 'like', opened: this.opened[e.id] })
       const others = [...this.posts.values()].filter((e) => kept(e) && e.author !== this.myPubkey && !this.muted[e.author])
       const mine = [...this.posts.values()].filter((e) => e.author === this.myPubkey && survives(e, { now, opened: this.opened[e.id] }))
@@ -490,18 +535,23 @@ export const useFeed = defineStore('feed', {
       const ranked = rankFeed(items, this.preset, now)
       // mis ecos vivos van arriba como "tuyos", fuera del ranking
       this.feed = [
-        ...mine.sort((a, b) => b.createdAt - a.createdAt).map((eco) => ({ eco, ctx: { mine: true, name: this.myName }, score: Infinity })),
+        ...mine.sort((a, b) => b.createdAt - a.createdAt).map((eco) => /** @type {FeedItem} */ ({ eco, ctx: { mine: true, name: this.myName }, score: Infinity })),
         ...ranked
       ]
     },
 
     // Reply y re-eco se publican vía publish({ text, context }) desde el composer.
+    /** @param {string} pk */
     _bumpAffinity (pk) { this.interactions.set(pk, (this.interactions.get(pk) || 0) + 1) },
 
     // --- Like / Dislike ---
     // Nudgean la afinidad con el autor (±). Y el LIKE además persiste el eco en
     // tu archivo local: sobrevive a la muerte de la red como copia tuya.
-    async react (eco, type) { // type: 'like' | 'dislike'
+    /**
+     * @param {Eco} eco
+     * @param {'like' | 'dislike'} type
+     */
+    async react (eco, type) {
       const id = eco.id, author = eco.author
       if (!author || author === this.myPubkey) return
       const prev = this.myReaction[id]
@@ -519,9 +569,14 @@ export const useFeed = defineStore('feed', {
       this._savePrefs()
       await this.rebuild()
     },
+    /**
+     * @param {string} pk
+     * @param {number} d
+     */
     _addReaction (pk, d) { this.reactions[pk] = (this.reactions[pk] || 0) + d },
 
     // --- Entrada por proxy (eventos dirigidos de otros) ---
+    /** @param {ProxyEvent} msg */
     async _onProxy (msg) {
       const p = msg?.payload
       if (!p || p.app !== 'eco') return
@@ -539,9 +594,12 @@ export const useFeed = defineStore('feed', {
       // reacción: quien quiera traerlo lo re-eco, que es un eco suyo citando el mío
       // (`repostOf` + `quoted`) y gasta SU beacon, no el mío.
       if ((type === 'eco-reply' || type === 'eco-repost') && aboutMyEco && p.refId === this.myPinId) {
+        // `aboutMyEco` ya dice que está en `posts`; el `if` es para que el tipo lo sepa.
         const mineEco = this.posts.get(p.refId)
-        mineEco.expiresAt = Date.now() + TTL_24H
-        if (this.pos) await publishEco(mineEco, this.pos.lat, this.pos.lng, TTL_24H)
+        if (mineEco) {
+          mineEco.expiresAt = Date.now() + TTL_24H
+          if (this.pos) await publishEco(mineEco, this.pos.lat, this.pos.lng, TTL_24H)
+        }
       }
 
       // Gate del remitente. Si me responde a MÍ, siempre pasa (me está hablando);
@@ -568,6 +626,7 @@ export const useFeed = defineStore('feed', {
       await this.rebuild()
     },
 
+    /** @param {Omit<Notif, 'id' | 'ts' | 'read'>} n */
     _notify (n) {
       if (!shouldNotifyType(n.type)) return   // pref por tipo (paquete compartido)
       const id = (n.ecoId || n.refId || '') + ':' + n.type
@@ -587,6 +646,7 @@ export const useFeed = defineStore('feed', {
 
     // Borrar un eco propio: lo saco del feed local y retiro mi beacon del índice
     // geo (deja de descubrirse). El archivo local append-only puede conservarlo.
+    /** @param {Eco} eco */
     async deleteMine (eco) {
       this.posts.delete(eco.id)
       try { await removeEco() } catch (_) {}
@@ -597,6 +657,7 @@ export const useFeed = defineStore('feed', {
 
     // Mute PERSONAL y persistente (no es un ban global): oculta a ese autor de TU
     // feed y no vuelve a entrar por el sondeo de geo hasta que lo quites.
+    /** @param {string} pk */
     async mute (pk) {
       if (!pk) return
       this.muted = { ...this.muted, [pk]: true }
@@ -605,6 +666,7 @@ export const useFeed = defineStore('feed', {
       this._savePrefs()
       await this.rebuild()
     },
+    /** @param {string} pk */
     async unmute (pk) {
       const m = { ...this.muted }; delete m[pk]; this.muted = m
       this._savePrefs()
@@ -627,14 +689,20 @@ export const useFeed = defineStore('feed', {
 const URL_RE = /\b((?:https?:\/\/)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?::\d+)?(?:\/[^\s<>()]*)?)/gi
 // Extensiones de archivo que NO son dominios (evita linkificar "index.html").
 const FILE_EXT = new Set(['html', 'htm', 'js', 'mjs', 'css', 'json', 'md', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'pdf', 'zip', 'xml', 'yml', 'yaml', 'ts', 'vue'])
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
 function extractLinks (text) {
+  /** @type {string[]} */
   const out = []
   let m
   while ((m = URL_RE.exec(String(text))) !== null) {
     let u = m[1].replace(/[.,;:!?)]+$/, '')           // quita puntuación de cierre
     const hadScheme = /^https?:\/\//i.test(u)
     if (!hadScheme) {
-      const tld = u.split('/')[0].split('.').pop().toLowerCase()
+      // El patrón exige al menos un punto: siempre hay un último trozo.
+      const tld = String(u.split('/')[0].split('.').pop()).toLowerCase()
       if (FILE_EXT.has(tld)) continue                 // "index.html" no es un link
       u = 'https://' + u                              // dominio desnudo → https
     }
@@ -645,7 +713,12 @@ function extractLinks (text) {
 
 // Tags: #hashtag (letras/números/_ unicode), normalizados sin '#'.
 const TAG_RE = /(?:^|[\s(])#([\p{L}\p{N}_]{1,30})/gu
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
 function extractTags (text) {
+  /** @type {string[]} */
   const tags = []
   let m
   while ((m = TAG_RE.exec(String(text))) !== null) tags.push(m[1])
@@ -656,15 +729,28 @@ function extractTags (text) {
 
 // El payload del pin geo ES el eco; el server ya verificó la firma del sobre,
 // así que el author autoritativo es el pubkey del pin.
+/**
+ * @param {Pin} pin
+ * @returns {Eco | null}
+ */
 function pinToEco (pin) {
-  const e = pin.payload
+  // El payload lo firmó su autor con la forma de un eco (lo comprueba lo de abajo: id y texto).
+  const e = /** @type {Partial<Eco>} */ (pin.payload)
   if (!e || !e.id || !e.text) return null
-  return {
+  return /** @type {Eco} */ ({
     ...e,
     author: pin.publickey || e.author,
     media: mediaOf(e),
     lat: pin.lat ?? e.lat, lng: pin.lng ?? e.lng,
     distanceMeters: pin.distanceMeters,
-    expiresAt: e.expiresAt || (pin.expiresAt ? new Date(pin.expiresAt).getTime() : (e.createdAt + TTL_24H))
-  }
+    expiresAt: e.expiresAt || (pin.expiresAt ? new Date(pin.expiresAt).getTime() : (Number(e.createdAt) + TTL_24H))
+  })
+}
+
+/**
+ * El mensaje de un error para decírselo a la persona.
+ * @param {unknown} e
+ */
+function errMsg (e) {
+  return e instanceof Error ? e.message : String(e)
 }

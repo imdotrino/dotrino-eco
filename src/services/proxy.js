@@ -3,19 +3,27 @@
 // offline 24h del destinatario (su misma identidad del vault). El descubrimiento
 // del feed va por geo; esto es el canal punto-a-punto.
 
-import { getWebSocketProxyClient } from '@dotrino/proxy-client'
-import { getIdentity, getMyPubkey, sealing } from './identity'
+import { getWebSocketProxyClient, identitySealing } from '@dotrino/proxy-client'
+import { getIdentity, getMyPubkey } from './identity'
+/** @import { WebSocketProxyClient } from '@dotrino/proxy-client' */
+/** @import { ProxyEvent } from '../types.js' */
 
+/** @type {WebSocketProxyClient | null} */
 let client = null
 let identified = false
+/** @type {Set<(ev: ProxyEvent) => void>} */
 const handlers = new Set()
 
+/** @returns {Promise<WebSocketProxyClient>} */
 async function ensureConnected () {
   if (!client) {
-    // `requireSealed`: nada en claro, ni al enviar ni al recibir (CONVENCIONES §4.1).
-    client = getWebSocketProxyClient({ requireSealed: true, sealing })
+    const id = await getIdentity()
+    if (!id) throw Object.assign(new Error('identity not available'), { code: 'no-identity' })
+    // `requireSealed`: nada en claro, ni al enviar ni al recibir (CONVENCIONES §4.1). El
+    // sellado lo pone el pilar, con la marca `eco` de siempre en el sobre.
+    client = getWebSocketProxyClient({ requireSealed: true, sealing: identitySealing(id, { app: 'eco' }) })
     // 'message' → (from, payload, meta); el pubkey del remitente va en meta.fromPubkey
-    client.on?.('message', (from, payload, meta) => {
+    client.on?.('message', (/** @type {string} */ from, /** @type {ProxyEvent['payload']} */ payload, /** @type {{ fromPubkey?: string } | undefined} */ meta) => {
       const ev = { from, payload, fromPubkey: meta?.fromPubkey || null }
       for (const h of handlers) { try { h(ev) } catch (_) {} }
     })
@@ -24,7 +32,7 @@ async function ensureConnected () {
   await client.connect()
   const id = await getIdentity()
   const publickey = getMyPubkey()
-  if (!publickey) throw new Error('vault has no pubkey; cannot identify')
+  if (!id || !publickey) throw new Error('vault has no pubkey; cannot identify')
   // El sobre lo arma el pilar, con el destinatario dentro (antes se copiaba en cada app).
   await client.identifyAs({ publickey, sign: (d) => id.signData(d) })
   identified = true
@@ -34,7 +42,11 @@ async function ensureConnected () {
 /** El cliente del proxio, conectado e identificado (para leer lo público del content). */
 export async function getClient () { return ensureConnected() }
 
-/** Suscribirse a mensajes entrantes (reply/repost/mención de otros). */
+/**
+ * Suscribirse a mensajes entrantes (reply/repost/mención de otros).
+ * @param {(ev: ProxyEvent) => void} fn
+ * @returns {() => boolean}
+ */
 export function onMessage (fn) {
   handlers.add(fn)
   return () => handlers.delete(fn)
@@ -45,7 +57,7 @@ export async function enablePush () {
   const c = await ensureConnected()
   const id = await getIdentity()
   const publickey = getMyPubkey()
-  if (!publickey) throw new Error('vault has no pubkey')
+  if (!id || !publickey) throw new Error('vault has no pubkey')
   await c.enablePush({ publicKey: publickey, sign: (d) => id.signData(d) })
   return true
 }
@@ -53,7 +65,7 @@ export async function enablePush () {
 /** Conecta e identifica de forma proactiva (para recibir aunque no publiques). */
 export async function connect () {
   try { await ensureConnected(); return true } catch (e) {
-    console.warn('[proxy] could not identify:', e.message); return false
+    console.warn('[proxy] could not identify:', e instanceof Error ? e.message : e); return false
   }
 }
 
@@ -65,7 +77,7 @@ export async function connect () {
  * viaja en su beacon, que ya va firmado.
  *
  * @param {string|string[]} toPubkey
- * @param {string} toEncPub  su pública de cifrado (`payload.encPub` del beacon)
+ * @param {string | undefined} toEncPub  su pública de cifrado (`payload.encPub` del beacon)
  * @param {object} payload  { type:'eco-reply'|'eco-repost'|'eco-mention', eco, refId, ... }
  */
 export async function sendEcoEvent (toPubkey, toEncPub, payload) {

@@ -9,9 +9,35 @@ import { IMAGE_MAX_BYTES } from './publicEco.js'
 const MAX_SIDE = 1280
 
 /**
+ * Dibuja el bitmap a `w`×`h` y lo saca en JPEG. OffscreenCanvas si lo hay (y entonces
+ * `convertToBlob`); si no, un `<canvas>` con `toBlob`.
+ * @param {ImageBitmap} bitmap
+ * @param {number} w
+ * @param {number} h
+ * @param {number} quality
+ * @returns {Promise<Blob>}
+ */
+async function drawJpeg (bitmap, w, h, quality) {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    const canvas = new OffscreenCanvas(w, h)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('no 2d context')
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    return canvas.convertToBlob({ type: 'image/jpeg', quality })
+  }
+  const canvas = Object.assign(document.createElement('canvas'), { width: w, height: h })
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('no 2d context')
+  ctx.drawImage(bitmap, 0, 0, w, h)
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
+  if (!blob) throw new Error('the canvas gave no image')
+  return blob
+}
+
+/**
  * @param {File|Blob} file
  * @param {{ maxSide?: number, maxBytes?: number }} [opts]
- * @returns {Promise<{ bytes: Uint8Array, mime: string, width: number, height: number }>}
+ * @returns {Promise<{ bytes: Uint8Array<ArrayBuffer>, mime: string, width: number, height: number }>}
  */
 export async function shrinkImage (file, { maxSide = MAX_SIDE, maxBytes = IMAGE_MAX_BYTES } = {}) {
   if (!/^image\//.test(file?.type || '')) throw Object.assign(new Error('not an image'), { code: 'bad-image' })
@@ -28,13 +54,7 @@ export async function shrinkImage (file, { maxSide = MAX_SIDE, maxBytes = IMAGE_
     for (let i = 0; i < 8; i++) {
       const w = Math.max(1, Math.round(bitmap.width * scale))
       const h = Math.max(1, Math.round(bitmap.height * scale))
-      /** @type {any} */
-      const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h })
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(bitmap, 0, 0, w, h)
-      const blob = canvas.convertToBlob
-        ? await canvas.convertToBlob({ type: 'image/jpeg', quality })
-        : await new Promise((r) => canvas.toBlob(r, 'image/jpeg', quality))
+      const blob = await drawJpeg(bitmap, w, h, quality)
       if (blob.size <= maxBytes || i === 7) {
         return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: 'image/jpeg', width: w, height: h }
       }

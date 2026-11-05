@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, watchEffect } from 'vue'
+import { ref, shallowRef, computed, onMounted, onBeforeUnmount, watch, watchEffect } from 'vue'
 import { useFeed } from './feed/feedStore'
 import { isAlive, expiresAtOf } from './feed/ranking'
 import { createVaultProfileProvider } from '@dotrino/profile'
@@ -12,12 +12,17 @@ import { useBackLayer } from '@dotrino/nav/vue'
 import iconUrl from '/icon.svg'
 import EcoImage from './components/EcoImage.vue'
 import { shrinkImage } from './services/image'
+/** @import { Eco, Notif } from './types.js' */
+/** @import { DotrinoTopbar } from '@dotrino/topbar' */
+/** @import { Identity } from '@dotrino/identity' */
+/** @import { VaultReputation } from '@dotrino/reputation' */
 
 const feed = useFeed()
 // Idioma: el toggle vive en <dotrino-topbar> y es la fuente de verdad; persiste
 // en la clave común del ecosistema ('dotrino.lang'). Migramos UNA vez la
 // preferencia vieja de Eco ('eco:lang') para no resetear a quien ya eligió.
 const LANG_KEY = 'dotrino.lang'
+/** @returns {'es' | 'en'} */
 function initialLang () {
   try {
     const s = localStorage.getItem(LANG_KEY)
@@ -34,6 +39,7 @@ function initialLang () {
 const lang = ref(initialLang())
 watch(lang, (l) => { document.documentElement.lang = l }, { immediate: true })
 // El topbar avisa al cambiar de idioma (él ya lo persistió).
+/** @param {CustomEvent<{ lang?: string }>} e */
 function onLang (e) {
   const l = e?.detail?.lang
   if (l === 'es' || l === 'en') lang.value = l
@@ -50,7 +56,7 @@ const T = {
     themes: 'Temas', themesTitle: 'Tus temas',
     themesIntro: 'Eco los aprende solo de lo que publicas y respondes; los temas suben en tu orden (preset “Temas”). Aquí los agregas o quitas.',
     addPh: 'Agregar un tema', noThemes: 'Todavía no hay temas. Publica con #hashtags, busca algo, o agrega uno aquí.', close: 'Cerrar',
-    inbox: (n) => `${n} en tu bandeja (avalados por tu red)`, accept: 'Ver', dismiss: 'Descartar',
+    inbox: (/** @type {number} */ n) => `${n} en tu bandeja (avalados por tu red)`, accept: 'Ver', dismiss: 'Descartar',
     reply: 'Responder', repost: 'Re-eco', mute: 'Silenciar (ocultar de tu feed)', del: 'Borrar',
     like: 'Me gusta', dislike: 'No me gusta', share: 'Compartir', kept: 'guardado',
     // Guardar una copia en el espacio propio del usuario. Nada de "node": la copy
@@ -88,7 +94,7 @@ const T = {
     themes: 'Topics', themesTitle: 'Your topics',
     themesIntro: 'Eco learns them automatically from what you post and reply to; topics rank higher (the “Topics” sort). Add or remove them here.',
     addPh: 'Add a topic', noThemes: 'No topics yet. Post with #hashtags, search something, or add one here.', close: 'Close',
-    inbox: (n) => `${n} in your inbox (endorsed by your network)`, accept: 'View', dismiss: 'Dismiss',
+    inbox: (/** @type {number} */ n) => `${n} in your inbox (endorsed by your network)`, accept: 'View', dismiss: 'Dismiss',
     reply: 'Reply', repost: 'Re-echo', mute: 'Mute (hide from your feed)', del: 'Delete',
     like: 'Like', dislike: 'Dislike', share: 'Share', kept: 'saved',
     keepAdd: 'Keep a copy', keepRemove: 'Stop keeping it',
@@ -121,12 +127,14 @@ const text = ref('')
 // Imagen del próximo eco: { bytes, mime, width, height, preview }. Solo se ofrece
 // con node (sin dónde guardarla no hay imagen), y se prepara al elegirla para que
 // publicar no espere al encogido.
-const image = ref(null)
-const imageInput = ref(null)
-const imageError = ref(null)
+const image = ref(/** @type {{ bytes: Uint8Array<ArrayBuffer>, mime: string, width: number, height: number, preview: string } | null} */ (null))
+const imageInput = ref(/** @type {HTMLInputElement | null} */ (null))
+const imageError = ref(/** @type {string | null} */ (null))
+/** @param {Event} e */
 async function pickImage (e) {
-  const file = e.target.files?.[0]
-  e.target.value = ''
+  const input = /** @type {HTMLInputElement} */ (e.target)
+  const file = input.files?.[0]
+  input.value = ''
   if (!file) return
   imageError.value = null
   try {
@@ -134,15 +142,16 @@ async function pickImage (e) {
     if (image.value?.preview) URL.revokeObjectURL(image.value.preview)
     image.value = { ...shrunk, preview: URL.createObjectURL(new Blob([shrunk.bytes], { type: shrunk.mime })) }
   } catch (err) {
-    imageError.value = err?.code === 'bad-image' ? t.value.imgBad : err.message
+    const er = /** @type {{ code?: string, message?: string } | null} */ (err)
+    imageError.value = er?.code === 'bad-image' ? t.value.imgBad : String(er?.message)
   }
 }
 function dropImage () {
   if (image.value?.preview) URL.revokeObjectURL(image.value.preview)
   image.value = null
 }
-const composeCtx = ref(null)   // { mode:'reply'|'reeco', eco } cuando respondés/re-ecoás
-const composerEl = ref(null)
+const composeCtx = ref(/** @type {{ mode: 'reply' | 'reeco', eco: Eco, label: string | null | undefined } | null} */ (null))   // cuando respondes/re-ecoas
+const composerEl = ref(/** @type {HTMLTextAreaElement | null} */ (null))
 const search = ref('')
 const newInterest = ref('')
 const showThemes = ref(false)
@@ -150,10 +159,15 @@ const showNotifs = ref(false)
 const now = ref(Date.now())
 const nickPrompt = ref(false)
 const nickDraft = ref('')
+/** @type {(() => unknown) | null} */
 let pendingAction = null
+/** @type {ReturnType<typeof setInterval> | undefined} */
 let tick
 
-// Guard central: ninguna acción sin nick. Abre el prompt y reanuda la acción.
+/**
+ * Guard central: ninguna acción sin nick. Abre el prompt y reanuda la acción.
+ * @param {() => unknown} fn
+ */
 function withNick (fn) {
   if (feed.hasNick) return fn()
   pendingAction = fn
@@ -188,6 +202,7 @@ function addInterest () {
   if (v) { feed.addInterest(v); newInterest.value = '' }
 }
 
+/** @param {MessageEvent} e */
 function onSWMessage (e) { if (e.data?.type === 'cc-push-ring') feed.discoverNow?.() }
 
 onMounted(async () => {
@@ -212,6 +227,7 @@ onBeforeUnmount(() => {
 // Re-eco puede ir sin texto (cita sola); reply/eco normal requieren texto.
 const canPublish = computed(() => !feed.standalone && feed.pos && !feed.busy &&
   (text.value.trim().length > 0 || composeCtx.value?.mode === 'reeco' || !!image.value))
+/** @param {number} m */
 const radiusLabel = (m) => m === 0 ? t.value.global : (m >= 1000 ? `${m / 1000}km` : `${m}m`)
 
 async function doPublish () {
@@ -221,6 +237,11 @@ async function doPublish () {
   const eco = await feed.publish({ text: text.value, context, image: img })
   if (eco) { text.value = ''; composeCtx.value = null; dropImage() }
 }
+/**
+ * @param {'reply' | 'reeco'} mode
+ * @param {Eco} eco
+ * @param {string | null | undefined} label
+ */
 function startCompose (mode, eco, label) {
   composeCtx.value = { mode, eco, label }
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -229,8 +250,9 @@ function startCompose (mode, eco, label) {
 function cancelCompose () { composeCtx.value = null }
 // Compartir: modal coherente con el set del Web Component de support
 // (WhatsApp / X / Facebook, mismos intents y colores; iconos SVG inline).
-const shareCtx = ref(null)
+const shareCtx = ref(/** @type {Eco | null} */ (null))
 const shareCopied = ref(false)
+/** @type {Record<string, string>} */
 const SHARE_ICONS = {
   whatsapp: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163a11.867 11.867 0 0 1-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.817 11.817 0 0 1 8.413 3.488 11.824 11.824 0 0 1 3.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 0 1-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 0 0 1.519 5.26l-.999 3.648 3.969-1.018zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
@@ -239,7 +261,9 @@ const SHARE_ICONS = {
 const SHARE_URL = 'https://eco.dotrino.com/'
 // El enlace de ESTE eco si lo tiene (mi copia guardada/pública, o la referencia que su
 // autor puso en el beacon); si no, la app a secas.
+/** @param {Eco} eco */
 const shareUrl = (eco) => feed.linkFor(eco.id) || SHARE_URL
+/** @param {Eco} eco */
 function shareTargets (eco) {
   const u = encodeURIComponent(shareUrl(eco))
   const text = encodeURIComponent(eco.text || 'Eco')
@@ -249,14 +273,16 @@ function shareTargets (eco) {
     { key: 'facebook', label: 'Facebook', color: '#1877F2', href: `https://www.facebook.com/sharer/sharer.php?u=${u}` }
   ]
 }
+/** @param {Eco} eco */
 function doShare (eco) { shareCopied.value = false; shareCtx.value = eco }
 
 // Perfil de un autor (click en su nick). Datos del propio feed; mute/unmute acá.
-const profilePk = ref(null)
+const profilePk = ref(/** @type {string | null} */ (null))
 const profile = computed(() => {
   const pk = profilePk.value
   if (!pk) return null
   const entries = feed.feed.filter((i) => i.eco.author === pk)
+  /** @type {import('./types.js').FeedCtx} */
   const ctx = entries[0]?.ctx || {}
   return {
     pk,
@@ -269,31 +295,35 @@ const profile = computed(() => {
     ecos: entries.map((e) => e.eco)
   }
 })
+/** @param {string} pk */
 function openProfile (pk) { profilePk.value = pk }
 
 // Tarjeta de perfil + reputación compartida (<dotrino-profile>): mismo UI
 // que el messenger, tematizado al teal de Eco vía --ccp-*. El provider cablea
 // los datos al vault + registro (singleton).
+/** @type {ReturnType<typeof createVaultProfileProvider> | null} */
 let _profileProvider = null
 async function ensureProfileProvider () {
   if (_profileProvider) return _profileProvider
   try {
     const [identity, reputation] = await Promise.all([getIdentity(), getReputation()])
-    if (reputation) _profileProvider = createVaultProfileProvider({ identity, reputation })
+    if (identity && reputation) _profileProvider = createVaultProfileProvider({ identity, reputation })
   } catch (_) { /* sin provider el componente muestra "registro no disponible" */ }
   return _profileProvider
 }
+/** @param {Element | import('vue').ComponentPublicInstance | null} el  el `<dotrino-profile>` */
 function bindProfile (el) {
   if (!el) return
-  ensureProfileProvider().then((p) => { if (p) el.provider = p })
+  ensureProfileProvider().then((p) => { if (p) /** @type {{ provider?: unknown }} */ (el).provider = p })
 }
 
 // "Mi perfil" (§6.1) lo abre el propio <dotrino-topbar>: es el dueño del modal.
 // Le pasamos los pilares que la app ya maneja (identidad + reputación) y el tema
 // por PROPIEDAD JS; con eso deriva pubkey, nombre y avatar del perfil activo.
-const topbarRef = ref(null)
-const identityInst = ref(null)
-const reputationInst = ref(null)
+const topbarRef = ref(/** @type {DotrinoTopbar | null} */ (null))
+// Fuera del Proxy reactivo de Vue: la identidad habla con su iframe por postMessage.
+const identityInst = shallowRef(/** @type {Identity | null} */ (null))
+const reputationInst = shallowRef(/** @type {VaultReputation | null} */ (null))
 watchEffect(() => {
   const tb = topbarRef.value
   if (!tb) return
@@ -309,11 +339,14 @@ watchEffect(() => {
 })
 
 // Mi etiqueta para un pk (de lo que ya está en el feed), para hilos/citas.
+/** @param {string} pk */
 function myLabelFor (pk) { return feed.feed.find((i) => i.eco.author === pk)?.ctx?.name || null }
 
 // --- Hilos: ver un mensaje con todas sus respuestas ---
-const threadRoot = ref(null)
+const threadRoot = ref(/** @type {Eco | null} */ (null))
+/** @param {string} id */
 const replyCountOf = (id) => feed.allEcos.filter((e) => e.replyTo?.id === id).length
+/** @param {Eco} eco */
 function openThread (eco) { threadRoot.value = eco }
 
 // Volver unificado: cada modal abierto pasa a ser una "capa". El botón físico
@@ -330,18 +363,21 @@ useBackLayer(shareCtx, { onClose: () => { shareCtx.value = null } })
 
 // Notificaciones
 function openNotifs () { showNotifs.value = true; setTimeout(() => feed.markNotifsRead(), 800) }
+/** @param {Notif} n */
 function openNotif (n) {
   showNotifs.value = false
   openThreadById(n.refId)   // refId = mi eco original → abre el hilo con la respuesta
 }
 // Panel de notificaciones = Web Component compartido <dotrino-notifications>.
-const bindNotif = (el) => { if (el) el.controller = getNotifications() }
+/** @param {Element | import('vue').ComponentPublicInstance | null} el  el `<dotrino-notifications>` */
+const bindNotif = (el) => { if (el) /** @type {{ controller?: unknown }} */ (el).controller = getNotifications() }
 const ccnTheme = {
   '--ccn-bg': 'var(--card)', '--ccn-bg-2': 'var(--bg2)', '--ccn-bg-3': 'var(--bg2)',
   '--ccn-bg-4': 'var(--line)', '--ccn-border': 'var(--line)', '--ccn-text': 'var(--text)',
   '--ccn-muted': 'var(--muted)', '--ccn-accent': 'var(--teal)', '--ccn-accent-text': 'var(--dt-accent-ink)',
   '--ccn-radius': 'var(--dt-radius)', 'margin-bottom': '10px', display: 'block',
 }
+/** @param {string | undefined} id */
 function openThreadById (id) {
   const e = feed.allEcos.find((x) => x.id === id)
   threadRoot.value = e || null
@@ -352,7 +388,8 @@ const threadList = computed(() => {
   const all = feed.allEcos
   let root = start, guard = 0
   while (root.replyTo && guard++ < 50) {        // subir hasta la raíz del hilo
-    const parent = all.find((e) => e.id === root.replyTo.id)
+    const parentId = root.replyTo.id
+    const parent = all.find((e) => e.id === parentId)
     if (!parent) break
     root = parent
   }
@@ -371,26 +408,42 @@ function toggleMuteProfile () {
   if (p.muted) feed.unmute(p.pk)
   else { feed.mute(p.pk); profilePk.value = null }
 }
+/** @param {Eco} eco */
 async function copyShare (eco) {
   try {
     await navigator.clipboard.writeText((eco.text ? eco.text + ' ' : '') + shareUrl(eco))
     shareCopied.value = true; setTimeout(() => { shareCopied.value = false }, 1600)
   } catch (_) {}
 }
+/** @param {Eco} eco */
 function isExpired (eco) { return !isAlive(eco, now.value) }
 // Fecha y hora del post (en vez de "expira en 23h").
+/** @param {Eco} eco */
 function fmtDate (eco) {
   const d = new Date(eco.createdAt || Date.now())
   return d.toLocaleString(lang.value === 'en' ? 'en-US' : 'es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
+/** @param {string | null | undefined} pk */
 const shortPk = (pk) => pk ? pk.replace(/[^a-zA-Z0-9]/g, '').slice(-6) : '??????'
 // Nombre a mostrar: MI etiqueta primero; si difiere de cómo SE identifica, su
 // self-nick entre paréntesis. Sin etiqueta mía → su self-nick → pubkey corto.
+/**
+ * @param {string} author
+ * @param {string | null | undefined} myLabel
+ * @param {string | null | undefined} self
+ */
 function displayName (author, myLabel, self) {
   if (myLabel && self && self !== myLabel) return `${myLabel} (${self})`
   return myLabel || self || shortPk(author)
 }
+/** @param {Event} e */
+function onRadius (e) { feed.setRadius(Number(/** @type {HTMLSelectElement} */ (e.target).value)) }
+/** @param {Event} e */
+function onPreset (e) { feed.setPreset(/** @type {HTMLSelectElement} */ (e.target).value) }
+/** @param {Event} e */
+function onKeepToggle (e) { feed.setKeepNext(/** @type {HTMLInputElement} */ (e.target).checked) }
+/** @param {Eco} eco */
 function ttlText (eco) {
   const exp = expiresAtOf(eco)
   const ms = exp - now.value
@@ -424,11 +477,11 @@ function ttlText (eco) {
     <div slot="end" class="topbar-controls">
       <dotrino-install class="cc-install" :lang="lang" data-testid="install-btn"></dotrino-install>
       <select class="top-select" :value="feed.radiusMeters"
-              @change="feed.setRadius(Number($event.target.value))" :title="t.radius">
+              @change="onRadius" :title="t.radius">
         <option v-for="r in feed.radii" :key="r" :value="r">◎ {{ radiusLabel(r) }}</option>
       </select>
       <select class="top-select" :value="feed.preset"
-              @change="feed.setPreset($event.target.value)" :title="t.sort">
+              @change="onPreset" :title="t.sort">
         <option v-for="(p, k) in feed.presets" :key="k" :value="k">↕ {{ p.label[lang] }}</option>
       </select>
       <button class="chip notif-btn" data-testid="bell" @click="openNotifs" :title="t.notifications">🔔<span v-if="feed.unread" class="notif-badge" data-testid="unread">{{ feed.unread }}</span></button>
@@ -470,14 +523,14 @@ function ttlText (eco) {
              como siempre: el content es una extensión del store, no un requisito. -->
         <template v-if="feed.hasNode">
           <input ref="imageInput" type="file" accept="image/*" hidden @change="pickImage" data-testid="image-input" />
-          <button class="chip" :title="t.imgHint" data-testid="image-add" @click="imageInput.click()">🖼 {{ t.imgAdd }}</button>
+          <button class="chip" :title="t.imgHint" data-testid="image-add" @click="imageInput?.click()">🖼 {{ t.imgAdd }}</button>
         </template>
         <!-- Guardar una copia: opt-in POR ECO y sin memoria entre uno y otro. Lo
              efímero es el default de Eco y guardar cambia esa promesa, así que se
              pide cada vez en vez de dejarlo encendido. Solo aparece si de verdad
              hay dónde guardarla. -->
         <label v-if="feed.hasNode" class="keep-toggle" :title="t.keepHint" data-testid="keep-toggle">
-          <input type="checkbox" :checked="feed.keepNext" @change="feed.setKeepNext($event.target.checked)" />
+          <input type="checkbox" :checked="feed.keepNext" @change="onKeepToggle" />
           <span>💾 {{ t.keepAdd }}</span>
         </label>
         <div class="spacer"></div>

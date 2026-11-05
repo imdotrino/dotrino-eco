@@ -20,6 +20,7 @@
 import { buildUrl, parseRef } from '@dotrino/content-client'
 import { nodeSession } from '@dotrino/content-client/session'
 import { getIdentity } from './identity'
+/** @import { Eco } from '../types.js' */
 
 // El node de esta sesión (content-client/session): se intenta una vez; sin node, Eco sigue.
 const session = nodeSession(getIdentity)
@@ -45,6 +46,7 @@ export const contentError = () => session.lastError()
  *
  * @returns {Promise<{cid:string,key:string|null,owner:string,url:string}|null>}
  *   null si no hay node — el eco ya se publicó igual, esto solo no archivó.
+ * @param {Eco} eco
  */
 export async function archiveEco (eco) {
   const cc = await getContent()
@@ -59,6 +61,8 @@ export async function archiveEco (eco) {
  * Recupera un eco archivado a partir de su puntero (o de un fragmento).
  * `get()` ya comprueba que los bytes cuadren con el `cid`, así que lo que vuelve
  * es lo que se guardó o es un error — nunca algo parecido.
+ * @param {string | { owner: string, cid: string, key?: string | null }} ref
+ * @returns {Promise<Eco | null>}
  */
 export async function readEco (ref) {
   const cc = await getContent()
@@ -69,7 +73,11 @@ export async function readEco (ref) {
   return JSON.parse(new TextDecoder().decode(bytes))
 }
 
-/** Borra un eco archivado del node (el usuario cambia de opinión). */
+/**
+ * Borra un eco archivado del node (el usuario cambia de opinión).
+ * @param {string} cid
+ * @returns {Promise<boolean>}
+ */
 export async function forgetEco (cid) {
   const cc = await getContent()
   if (!cc) return false

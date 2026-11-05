@@ -16,14 +16,16 @@
 // se prueba en Node sin navegador.
 
 import { TTL_24H } from '../feed/constants.js'
+/** @import { ContentClient } from '@dotrino/content-client' */
+/** @import { Eco, Media } from '../types.js' */
 
 /** Lo que cabe por el plano de control, menos margen para el base64 y el sobre. */
 export const IMAGE_MAX_BYTES = 200 * 1024
 
 /**
  * Sube la imagen de un eco como blob PÚBLICO y en claro, con la vida del beacon.
- * @param {{ cc: any, image: { bytes: Uint8Array, mime: string, width?: number, height?: number }|null, ttlMs?: number }} opts
- * @returns {Promise<{ owner: string, cid: string, mime: string, size: number, width?: number, height?: number }|null>}
+ * @param {{ cc: ContentClient | null, image: import('../types.js').ImageInput | null, ttlMs?: number }} opts
+ * @returns {Promise<Media | null>}
  *   null si no hay node o no hay imagen. Si el node FALLA, lanza: quien publica decide
  *   si sale sin imagen, pero no puede enterarse por un null mudo.
  */
@@ -36,6 +38,7 @@ export async function attachImage ({ cc, image, ttlMs = TTL_24H }) {
     throw Object.assign(new Error(`la imagen pesa ${Math.round(image.bytes.length / 1024)} KB y el máximo es ${IMAGE_MAX_BYTES / 1024} KB`), { code: 'too-large' })
   }
   const ref = await cc.put(image.bytes, { encrypt: false, acl: 'public', mime: image.mime, ttlMs })
+  /** @type {Media} */
   const out = { owner: ref.owner, cid: ref.cid, mime: image.mime, size: image.bytes.length }
   if (image.width) out.width = image.width
   if (image.height) out.height = image.height
@@ -52,6 +55,7 @@ export async function attachImage ({ cc, image, ttlMs = TTL_24H }) {
  * frase, y un eco son 280 caracteres como mucho— y los `links`, que es donde está la
  * fuente de la que habla. Y si el eco lleva imagen, se enlaza como MINIATURA: sin
  * eso la tarjeta cae al og.jpg de la app y enseña el logo en vez del eco.
+ * @param {{ cc: ContentClient | null, eco: Eco, ttlMs?: number }} opts
  * @returns {Promise<{ owner: string, cid: string }|null>} null sin node
  */
 export async function publishPublicCopy ({ cc, eco, ttlMs = TTL_24H }) {
@@ -78,20 +82,29 @@ export async function publishPublicCopy ({ cc, eco, ttlMs = TTL_24H }) {
 /**
  * Retener lo público de un eco (el usuario pidió «guardar una copia»): un blob
  * pineado no lo borra el GC ni por cuota ni por TTL.
+ * @param {{ cc: ContentClient | null, eco: Eco, ref: { cid: string } | null }} opts
+ * @returns {Promise<boolean>}
  */
 export async function pinPublic ({ cc, eco, ref }) {
   if (!cc) return false
-  const cids = [eco?.media?.cid, ref?.cid].filter(Boolean)
+  // Sin los vacíos, quedan solo cadenas.
+  const cids = /** @type {string[]} */ ([eco?.media?.cid, ref?.cid].filter(Boolean))
   for (const cid of cids) await cc.pin(cid).catch(() => {})
   return cids.length > 0
 }
 
-/** Un eco recibido (por pin o por la red) con la imagen que dice tener, o null. */
+/**
+ * Un eco recibido (por pin o por la red) con la imagen que dice tener, o null.
+ * @param {{ media?: unknown } | null | undefined} eco
+ * @returns {Media | null}
+ */
 export function mediaOf (eco) {
   const m = eco?.media
   if (!m || typeof m !== 'object') return null
-  if (typeof m.owner !== 'string' || typeof m.cid !== 'string' || !/^sha256-[0-9a-f]{64}$/.test(m.cid)) return null
-  return m
+  const r = /** @type {Record<string, unknown>} */ (m)
+  if (typeof r.owner !== 'string' || typeof r.cid !== 'string' || !/^sha256-[0-9a-f]{64}$/.test(r.cid)) return null
+  // Dueño y cid comprobados: lo demás de la imagen (mime, tamaño) es lo que dijo el autor.
+  return /** @type {Media} */ (m)
 }
 
 export default { attachImage, publishPublicCopy, pinPublic, mediaOf, IMAGE_MAX_BYTES }

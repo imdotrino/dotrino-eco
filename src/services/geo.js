@@ -6,19 +6,34 @@ import { createGeoClient } from '@dotrino/geo'
 import { signData, getPublicKeyJwk, getEncryptionPubkey } from './identity'
 import { TTL_24H } from '../feed/constants.js'
 
+/** @import { GeoClient, QueryRadiusInput, Pin } from '@dotrino/geo' */
+/** @import { Eco } from '../types.js' */
+
+/** @type {GeoClient | null} */
 let geo = null
 
+/** @returns {GeoClient} */
 export function getGeo () {
   if (!geo) {
-    geo = createGeoClient({ signData, getPublicKeyJwk })
+    geo = createGeoClient({
+      // Sin bóveda no hay firma: se para y se dice (antes, `null` llegaba al cliente y
+      // reventaba leyendo `.signature`).
+      signData: async (data) => {
+        const s = await signData(data)
+        if (!s) throw Object.assign(new Error('identity not available'), { code: 'no-identity' })
+        return s
+      },
+      getPublicKeyJwk
+    })
     // baseUrl default = https://geo.dotrino.com
   }
   return geo
 }
 
+
 /**
  * Publica/rehidrata mi beacon con un eco. Overwrite del anterior.
- * @param {object} eco       el eco completo (va en payload)
+ * @param {Eco} eco       el eco completo (va en payload)
  * @param {number} lat
  * @param {number} lng
  * @param {number} ttlMs     vida restante hasta expiresAt (cap del server)
@@ -55,9 +70,11 @@ export async function removeEco () {
  * @param {number} lng
  * @param {number} radiusMeters
  * @param {string[]} tags  filtro opcional (overlap)
+ * @returns {Promise<Pin[]>}
  */
 export async function discover (lat, lng, radiusMeters, tags = []) {
   const g = getGeo()
+  /** @type {QueryRadiusInput} */
   const opts = { lat, lng, radiusMeters }
   if (tags.length) opts.tags = tags
   const { pins } = await g.queryRadius(opts)

@@ -24,7 +24,9 @@ function migrateLegacy () {
   } catch (_) {}
 }
 
+/** @type {import('@dotrino/notifications').NotificationsController | null} */
 let _ctrl = null
+/** @returns {import('@dotrino/notifications').NotificationsController} */
 export function getNotifications () {
   if (_ctrl) return _ctrl
   migrateLegacy()
@@ -42,6 +44,7 @@ export function getNotifications () {
 }
 
 // ¿Avisar de este tipo de evento? (gatea la bandeja in-app del feedStore).
+/** @param {string | undefined} type */
 export function shouldNotifyType (type) { return getNotifications().shouldNotify(type) }
 
 // Re-registra la push subscription tras identify (endpoints rotan). Silencioso.

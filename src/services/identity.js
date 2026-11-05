@@ -5,9 +5,12 @@
 
 import { Identity } from '@dotrino/identity'
 
+/** @type {Identity | null} */
 let identity = null
+/** @type {string | null} */
 let myPubkey = null
 
+/** @returns {Promise<Identity | null>} */
 export async function initIdentity () {
   if (identity) return identity
   try {
@@ -21,26 +24,34 @@ export async function initIdentity () {
     myPubkey = (await identity.profileActa().catch(() => null))?.acta?.profileId
       || identity.me?.publickey || null
   } catch (e) {
-    console.warn('[identity] vault unreachable, standalone mode:', e.message)
+    console.warn('[identity] vault unreachable, standalone mode:', e instanceof Error ? e.message : e)
     identity = null
   }
   return identity
 }
 
+/** @returns {Promise<Identity | null>} */
 export async function getIdentity () {
   if (!identity) await initIdentity()
   return identity
 }
 
+/** @returns {string | null} */
 export function getMyPubkey () { return myPubkey }
 export function isReady () { return identity !== null && !!myPubkey }
 
 // --- nombre legible desde el vault (nunca un placeholder) ---
+/** @type {Map<string, string | null>} */
 const nameCache = new Map() // pk → nickname|null
 
+/** @returns {string | null} */
 export function getMyName () { return identity?.me?.nickname || null }
 
-/** Define mi nombre visible en el vault (firma mis ecos). Devuelve true si ok. */
+/**
+ * Define mi nombre visible en el vault (firma mis ecos). Devuelve true si ok.
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
 export async function setMyName (name) {
   const id = await getIdentity()
   if (!id) return false
@@ -49,11 +60,16 @@ export async function setMyName (name) {
   try { await id.setMyNickname(n); return !!getMyName() } catch (_) { return false }
 }
 
-/** Resuelve el nombre de un autor por su pubkey (peer book del vault). */
+/**
+ * Resuelve el nombre de un autor por su pubkey (peer book del vault).
+ * @param {string | null | undefined} pk
+ * @returns {Promise<string | null>}
+ */
 export async function nameOf (pk) {
   if (!pk) return null
   if (pk === myPubkey) return getMyName()
-  if (nameCache.has(pk)) return nameCache.get(pk)
+  const cached = nameCache.get(pk)
+  if (cached !== undefined) return cached
   let n = null
   try {
     const id = await getIdentity()
@@ -69,14 +85,21 @@ export async function nameOf (pk) {
 // —{ signature, publickey, profileId, chain }— y hay que pasarlo ENTERO: sin
 // `chain` el servidor no puede comprobar que este aparato habla por esta
 // identidad, y con la verificación nueva rechaza el sobre.
+/**
+ * @param {string | object} data  un eco firma su forma canónica (texto); un pin, un objeto
+ * @returns {Promise<{ signature: string, publickey: string } | null>}  null sin bóveda
+ */
 export async function signData (data) {
   const id = await getIdentity()
   if (!id) return null
   return id.signData(data)
 }
 
+/** @returns {Promise<string>} */
 export async function getPublicKeyJwk () {
   if (!myPubkey) await initIdentity()
+  // Sin identidad no hay con qué firmar un pin: se para y se dice, no se manda `null`.
+  if (!myPubkey) throw Object.assign(new Error('identity not available'), { code: 'no-identity' })
   return myPubkey
 }
 
@@ -84,23 +107,31 @@ export async function getPublicKeyJwk () {
 // afinidad(pk) ∈ [0,1]: cuánto interactuaste con el autor. Se calcula SÓLO en el
 // cliente (el server nunca ve tu grafo). Combina: es contacto, rating que vos le
 // diste, y un contador de interacciones que lleva el feedStore (reps/replies).
+/** @type {{ v: Set<string> | null, exp: number }} */
 const contactsCache = { v: null, exp: 0 }
 const CONTACTS_MS = 60_000
 
+/** @returns {Promise<Set<string>>} */
 async function getContactPubkeys () {
   const now = Date.now()
   if (contactsCache.v && contactsCache.exp > now) return contactsCache.v
   const id = await getIdentity()
+  /** @type {Set<string>} */
   let set = new Set()
   try {
     const list = (await id?.listContacts?.()) || []
-    set = new Set(list.map((c) => c.publickey || c.pubkey || c).filter(Boolean))
+    // Un contacto viejo puede venir como `{ pubkey }` o como la llave suelta.
+    set = new Set(list.map((c) => /** @type {string} */ (c.publickey || /** @type {{ pubkey?: string }} */ (c).pubkey || c)).filter(Boolean))
   } catch (_) { /* sin contactos accesibles */ }
   contactsCache.v = set
   contactsCache.exp = now + CONTACTS_MS
   return set
 }
 
+/**
+ * @param {string | null | undefined} pk
+ * @returns {Promise<boolean>}
+ */
 export async function isContact (pk) {
   if (!pk) return false
   return (await getContactPubkeys()).has(pk)
@@ -111,6 +142,7 @@ export async function isContact (pk) {
  * @param {string} pk pubkey
  * @param {number} interactions nº de interacciones locales (reps/replies dados)
  * @param {number} reactionNet net de likes(+1)/dislikes(-1) que le di
+ * @returns {Promise<number>}
  */
 export async function affinityOf (pk, interactions = 0, reactionNet = 0) {
   if (!pk) return 0
@@ -135,33 +167,17 @@ export async function affinityOf (pk, interactions = 0, reactionNet = 0) {
 // Los eventos dirigidos (respuestas, re-ecos) llevan contenido del usuario y dicen
 // quién le responde a quién, así que van sellados.
 //
-// La privada de cifrado vive en el VAULT, no aquí: la app no la toca. Se delega en
-// `identity.encrypt`/`identity.decrypt`, el mismo E2E que usa el messenger.
+// La privada de cifrado vive en el VAULT, no aquí: la app no la toca. El puente lo pone
+// el pilar (`identitySealing` de @dotrino/proxy-client, en proxy.js). Hasta 2026-11 había
+// aquí una copia propia que pasaba los destinatarios como cadenas (la bóveda espera
+// `{ encryptionPubkey }`, así que el sobre no envolvía a nadie) y hacía `JSON.parse` del
+// `{ plaintext }` que devuelve `decrypt`: ninguna respuesta ni re-eco sellado se podía abrir.
 
-/** Mi pública de cifrado. Va en el beacon, firmada, para que puedan escribirme. */
+/**
+ * Mi pública de cifrado. Va en el beacon, firmada, para que puedan escribirme.
+ * @returns {Promise<string | null>}
+ */
 export async function getEncryptionPubkey () {
   const id = await getIdentity()
   return id ? id.getEncryptionPubkey() : null
-}
-
-export const sealing = {
-  async seal (msg, peerEncPub) {
-    if (!peerEncPub) {
-      const e = new Error('ese eco es de una versión anterior: no trae llave de cifrado')
-      e.code = 'unsealed'
-      throw e
-    }
-    const id = await getIdentity()
-    if (!id) throw Object.assign(new Error('sin vault'), { code: 'unsealed' })
-    const envelope = await id.encrypt([peerEncPub], JSON.stringify(msg))
-    return { app: 'eco', sealed: envelope, from: await getEncryptionPubkey() }
-  },
-  async open (sobre) {
-    const id = await getIdentity()
-    const texto = await id.decrypt(sobre.from, null, sobre.sealed)
-    return JSON.parse(texto)
-  },
-  isSealed (m) {
-    return !!m && m.app === 'eco' && !!m.sealed
-  },
 }

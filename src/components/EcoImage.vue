@@ -6,11 +6,11 @@ import { ref, watch, onMounted } from 'vue'
 import { resolveMedia, invalidateMedia } from '../services/media-app'
 
 const props = defineProps({
-  media: { type: Object, required: true },
+  media: { type: /** @type {import('vue').PropType<import('../types.js').Media>} */ (Object), required: true },
   alt: { type: String, default: '' }
 })
 
-const src = ref(null)
+const src = ref(/** @type {string | null} */ (null))
 const state = ref('loading')   // loading | ready | missing
 let retried = false
 

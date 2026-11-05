@@ -24,14 +24,19 @@ const FAIL_TTL_MS = 60 * 1000
  */
 export function createMediaResolver ({ fetchPublic, makeObjectUrl, now = () => Date.now() }) {
   if (typeof fetchPublic !== 'function') throw new Error('createMediaResolver: fetchPublic is required')
+  /** @type {(bytes: Uint8Array, mime: string) => string} */
   const toUrl = makeObjectUrl || ((bytes, mime) => URL.createObjectURL(new Blob([/** @type {BlobPart} */ (bytes)], { type: mime })))
-  /** cid → url resuelta */
+  /** @type {Map<string, string>} cid → url resuelta */
   const urls = new Map()
-  /** cid → promesa en vuelo */
+  /** @type {Map<string, Promise<string | null>>} cid → promesa en vuelo */
   const inflight = new Map()
-  /** cid → cuándo falló */
+  /** @type {Map<string, number>} cid → cuándo falló */
   const failed = new Map()
 
+  /**
+   * @param {{ owner: string, cid: string, mime?: string }} media
+   * @returns {Promise<string>}
+   */
   async function resolveNow (media) {
     const r = await fetchPublic({ owner: media.owner, cid: media.cid })
     if (r?.url) return r.url
@@ -40,10 +45,19 @@ export function createMediaResolver ({ fetchPublic, makeObjectUrl, now = () => D
   }
 
   return {
-    /** Lo ya resuelto, sin provocar nada (para pintar sin esperar). */
+    /**
+     * Lo ya resuelto, sin provocar nada (para pintar sin esperar).
+     * @param {string} cid
+     * @returns {string | null}
+     */
     peek (cid) { return urls.get(cid) || null },
 
-    /** Mis propias imágenes: ya tengo los bytes, no hay nada que pedir. */
+    /**
+     * Mis propias imágenes: ya tengo los bytes, no hay nada que pedir.
+     * @param {string} cid
+     * @param {Uint8Array} bytes
+     * @param {string} mime
+     */
     setLocal (cid, bytes, mime) {
       if (!urls.has(cid)) urls.set(cid, toUrl(bytes, mime))
       return urls.get(cid)
@@ -59,7 +73,8 @@ export function createMediaResolver ({ fetchPublic, makeObjectUrl, now = () => D
       if (hit) return hit
       const when = failed.get(media.cid)
       if (when && now() - when < FAIL_TTL_MS) return null
-      if (inflight.has(media.cid)) return inflight.get(media.cid)
+      const pending = inflight.get(media.cid)
+      if (pending) return pending
       const p = resolveNow(media)
         .then((url) => { urls.set(media.cid, url); failed.delete(media.cid); return url })
         .catch(() => { failed.set(media.cid, now()); return null })
@@ -68,7 +83,10 @@ export function createMediaResolver ({ fetchPublic, makeObjectUrl, now = () => D
       return p
     },
 
-    /** La URL falló al cargar (bucket caído, borrada): se olvida para pedirla por la red. */
+    /**
+     * La URL falló al cargar (bucket caído, borrada): se olvida para pedirla por la red.
+     * @param {string} cid
+     */
     invalidate (cid) { urls.delete(cid); failed.delete(cid) },
 
     /** Para las pruebas y para liberar `blob:` al salir. */

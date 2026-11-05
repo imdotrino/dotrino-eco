@@ -6,10 +6,13 @@
 import { createVaultReputation } from '@dotrino/reputation'
 import { getIdentity, getMyPubkey } from './identity'
 
+/** @type {import('@dotrino/reputation').VaultReputation | null} */
 let _rep = null
+/** @type {Map<string, { v: number, exp: number }>} */
 const cache = new Map() // pk → { v, exp }
 const CACHE_MS = 30_000
 
+/** @returns {Promise<import('@dotrino/reputation').VaultReputation | null>} */
 async function getRep () {
   if (_rep) return _rep
   const id = await getIdentity()
@@ -21,7 +24,11 @@ async function getRep () {
 /** Instancia compartida de reputación (para el provider de <dotrino-profile>). */
 export async function getReputation () { return getRep() }
 
-/** reputación(pk) ∈ [0,1] ponderada por mi web-of-trust. 0 si desconocido. */
+/**
+ * reputación(pk) ∈ [0,1] ponderada por mi web-of-trust. 0 si desconocido.
+ * @param {string | null | undefined} pk
+ * @returns {Promise<number>}
+ */
 export async function repOf (pk) {
   if (!pk) return 0
   const myPk = getMyPubkey()
@@ -41,7 +48,11 @@ export async function repOf (pk) {
   return v
 }
 
-/** Versión cacheada sincrónica para el render (hot path). */
+/**
+ * Versión cacheada sincrónica para el render (hot path).
+ * @param {string | null | undefined} pk
+ * @returns {number}
+ */
 export function repOfSync (pk) {
   if (!pk) return 0
   if (pk === getMyPubkey()) return 1
@@ -51,11 +62,15 @@ export function repOfSync (pk) {
 /**
  * ¿Está avalado por mi red? Gate de capa 1 para desconocidos.
  * Avalado = score ≥ umbral. Default 0.15 (bajo: basta una atestación de tu red).
+ * @param {string} pk
+ * @param {number} [threshold]
+ * @returns {Promise<boolean>}
  */
 export async function isEndorsed (pk, threshold = 0.15) {
   return (await repOf(pk)) >= threshold
 }
 
+/** @param {string[]} pks */
 export async function warmRep (pks) {
   await Promise.all([...new Set(pks)].filter(Boolean).map(repOf))
 }
