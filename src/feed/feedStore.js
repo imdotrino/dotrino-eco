@@ -580,7 +580,11 @@ export const useFeed = defineStore('feed', {
     async _onProxy (msg) {
       const p = msg?.payload
       if (!p || p.app !== 'eco') return
-      const from = msg.fromPubkey || p.author
+      // El remitente lo dice el transporte (`meta.fromPubkey`, atado a quien se identificó),
+      // nunca el `author` que trae el propio mensaje: ese lo escribe quien manda y se puede
+      // inventar para pasar el filtro de contactos. Sin remitente verificado, no entra.
+      const from = msg.fromPubkey
+      if (!from) { console.warn('eco: dropped directed message without a verified sender'); return }
       const type = p.type
       const incoming = p.eco
       const aboutMyEco = p.refId && this.posts.get(p.refId)?.author === this.myPubkey
